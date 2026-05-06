@@ -1,6 +1,6 @@
-# DineroAI
+# Dinero
 
-DineroAI helps job applicants understand which roles they are most likely to interview for, why those roles fit, and what concrete resume changes would improve their odds.
+Dinero helps job applicants understand which roles they are most likely to interview for, why those roles fit, and what concrete resume changes would improve their odds.
 
 The product starts with CS, software engineering, machine learning, and data science roles. Applicants upload a resume, select or discover target jobs, and receive a role-specific interview likelihood score with practical resume feedback. Over time, opt-in applicant and hiring-team feedback improves the prediction model.
 
@@ -8,7 +8,7 @@ The product starts with CS, software engineering, machine learning, and data sci
 
 Most job seekers apply with limited signal. They do not know which roles are worth their time, what an ATS or recruiter may miss, or how to tailor their resume without guessing.
 
-DineroAI is designed to become a resume-to-role matching layer that:
+Dinero is designed to become a resume-to-role matching layer that:
 
 - Scores how likely an applicant is to get an interview for a specific job.
 - Explains the score in plain language.
@@ -152,4 +152,4 @@ Potential checks:
 
 ## Product Principle
 
-DineroAI should not tell users to apply everywhere. It should help them spend time where they have the strongest chance, understand why, and improve their resume with evidence-based changes.
+Dinero should not tell users to apply everywhere. It should help them spend time where they have the strongest chance, understand why, and improve their resume with evidence-based changes.
