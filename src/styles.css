@@ -210,7 +210,8 @@ h1 {
 
 .primary-button,
 .secondary-button,
-.text-button {
+.text-button,
+.ghost-button {
   min-height: 48px;
   border-radius: 8px;
   padding: 0 20px;
@@ -251,6 +252,19 @@ h1 {
   border: 1px solid rgba(16, 20, 18, 0.1);
   background: var(--white);
   color: var(--black);
+}
+
+.ghost-button {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  background: var(--soft);
+  color: var(--green-dark);
+}
+
+.ghost-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
 }
 
 .full-width {
@@ -590,6 +604,369 @@ progress::-moz-progress-bar {
   gap: 14px;
 }
 
+.portal-page {
+  width: min(1180px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 32px 0 80px;
+}
+
+.portal-topbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 12px;
+  box-shadow: 0 14px 34px rgba(17, 21, 19, 0.05);
+}
+
+.portal-topbar div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  text-align: center;
+}
+
+.portal-topbar span {
+  color: var(--green-dark);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.portal-topbar strong {
+  overflow: hidden;
+  color: var(--black);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portal-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 390px);
+  align-items: stretch;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.portal-hero > div:first-child,
+.portal-status-card,
+.portal-card,
+.forum-post {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: 0 16px 44px rgba(17, 21, 19, 0.06);
+}
+
+.portal-hero > div:first-child {
+  padding: 34px;
+}
+
+.portal-hero h1 {
+  max-width: 820px;
+  font-size: clamp(2.2rem, 4vw, 4.4rem);
+}
+
+.portal-hero p,
+.portal-status-card p,
+.portal-card p,
+.forum-composer p,
+.empty-state {
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.portal-status-card {
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  background: linear-gradient(135deg, #ffffff 0%, #f0fbf4 100%);
+  padding: 28px;
+}
+
+.portal-status-card span {
+  color: var(--green-dark);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.portal-status-card strong {
+  color: var(--black);
+  font-size: 1.75rem;
+  line-height: 1.1;
+}
+
+.portal-tabs {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 4px;
+  margin: 18px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--white);
+  padding: 4px;
+}
+
+.portal-tabs button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.portal-tabs button.selected {
+  background: var(--black);
+  color: var(--white);
+}
+
+.portal-grid,
+.forum-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 0.65fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.portal-card {
+  padding: 28px;
+}
+
+.upload-card h2,
+.forum-composer h2 {
+  color: var(--black);
+  font-size: clamp(1.7rem, 3vw, 2.6rem);
+  line-height: 1.05;
+}
+
+.file-drop {
+  display: grid;
+  gap: 8px;
+  margin: 24px 0 0;
+  border: 1px dashed rgba(22, 163, 74, 0.55);
+  border-radius: 8px;
+  background: var(--green-soft);
+  padding: 24px;
+  cursor: pointer;
+}
+
+.file-drop input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.file-drop strong {
+  color: var(--green-dark);
+  font-size: 1.15rem;
+}
+
+.file-drop span {
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.scan-preview {
+  display: grid;
+  gap: 12px;
+}
+
+.scan-preview div {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+  padding: 14px;
+}
+
+.scan-preview strong {
+  color: var(--black);
+}
+
+.scan-preview span {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 750;
+}
+
+.forum-layout {
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+}
+
+.forum-feed {
+  display: grid;
+  gap: 14px;
+}
+
+.forum-post {
+  padding: 24px;
+}
+
+.forum-post.resolved {
+  background: linear-gradient(135deg, #ffffff 0%, #f6faf7 100%);
+}
+
+.forum-post-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.forum-post-header div,
+.comment div {
+  display: grid;
+  gap: 2px;
+}
+
+.forum-post-header span,
+.comment strong {
+  color: var(--black);
+  font-weight: 900;
+}
+
+time {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.forum-post h3 {
+  margin-bottom: 10px;
+  color: var(--black);
+  font-size: 1.4rem;
+  line-height: 1.15;
+}
+
+.forum-post > p,
+.comment p {
+  color: var(--ink);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.resolved-toggle,
+.resolved-badge {
+  min-height: 34px;
+  border: 1px solid rgba(22, 163, 74, 0.22);
+  border-radius: 999px;
+  background: var(--green-soft);
+  color: var(--green-dark);
+  padding: 0 12px;
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
+.comments-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.comment {
+  border-left: 3px solid var(--green);
+  background: var(--soft);
+  padding: 12px 14px;
+}
+
+.comment-box {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.comment-box input {
+  min-height: 48px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 14px;
+  outline: none;
+}
+
+.empty-state {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--white);
+  padding: 22px;
+  font-weight: 800;
+}
+
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(16, 20, 18, 0.32);
+}
+
+.settings-panel {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  width: min(420px, 100%);
+  min-height: 100%;
+  background: var(--white);
+  padding: 26px;
+  box-shadow: -18px 0 60px rgba(17, 21, 19, 0.18);
+}
+
+.settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.settings-header h2 {
+  margin: 0;
+  color: var(--black);
+  font-size: 2rem;
+}
+
+.icon-button {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--white);
+  color: var(--black);
+  font-weight: 900;
+}
+
+.settings-user {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+  padding: 16px;
+}
+
+.settings-user span {
+  color: var(--black);
+  font-weight: 900;
+}
+
+.settings-user strong,
+.settings-note {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
 .auth-page {
   display: grid;
   grid-template-columns: minmax(0, 0.9fr) minmax(360px, 480px);
@@ -844,7 +1221,10 @@ progress::-moz-progress-bar {
   .auth-page,
   .about-hero,
   .contact-page,
-  .split-band {
+  .split-band,
+  .portal-hero,
+  .portal-grid,
+  .forum-layout {
     grid-template-columns: 1fr;
   }
 
@@ -899,7 +1279,8 @@ progress::-moz-progress-bar {
   .how-section,
   .content-page,
   .auth-page,
-  .contact-page {
+  .contact-page,
+  .portal-page {
     width: min(100% - 28px, 1180px);
   }
 
@@ -911,7 +1292,18 @@ progress::-moz-progress-bar {
   .metric-strip,
   .audience-grid,
   .steps-grid,
-  .form-grid {
+  .form-grid,
+  .portal-topbar,
+  .comment-box {
+    grid-template-columns: 1fr;
+  }
+
+  .portal-topbar div {
+    text-align: left;
+  }
+
+  .portal-tabs {
+    width: 100%;
     grid-template-columns: 1fr;
   }
 
@@ -921,7 +1313,8 @@ progress::-moz-progress-bar {
 
   .primary-button,
   .secondary-button,
-  .text-button {
+  .text-button,
+  .ghost-button {
     width: 100%;
   }
 

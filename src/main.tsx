@@ -5,6 +5,7 @@ import "./styles.css";
 
 type View = "home" | "about" | "contact" | "applicant" | "hirer";
 type AuthMode = "signin" | "signup";
+type PortalTab = "resume" | "forum";
 type Notice = { type: "success" | "error"; text: string } | null;
 type AuthNotice = { view: "applicant" | "hirer"; notice: NonNullable<Notice> } | null;
 type CurrentUser = {
@@ -13,6 +14,27 @@ type CurrentUser = {
   fullName: string | null;
   role: "applicant" | "hirer" | "admin";
   emailVerified: boolean;
+};
+type ForumComment = {
+  id: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  authorUserId: string;
+  authorName: string;
+  authorEmail: string;
+};
+type ForumPost = {
+  id: string;
+  subject: string;
+  body: string;
+  isResolved: boolean;
+  createdAt: string;
+  updatedAt: string;
+  authorUserId: string;
+  authorName: string;
+  authorEmail: string;
+  comments: ForumComment[];
 };
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -60,7 +82,14 @@ function App() {
     }
 
     refreshCurrentUser()
-      .then(setCurrentUser)
+      .then((user) => {
+        setCurrentUser(user);
+        if (user?.role === "applicant") {
+          setView("applicant");
+        } else if (user?.role === "hirer") {
+          setView("hirer");
+        }
+      })
       .catch(() => setCurrentUser(null))
       .finally(() => setAuthChecked(true));
   }, []);
@@ -68,6 +97,7 @@ function App() {
   async function handleLogout() {
     await apiRequest("/api/logout", { method: "POST" });
     setCurrentUser(null);
+    setView("home");
   }
 
   return (
@@ -82,6 +112,8 @@ function App() {
           currentUser={currentUser}
           initialNotice={authNotice?.view === "applicant" ? authNotice.notice : null}
           onAuthenticated={setCurrentUser}
+          onNavigate={setView}
+          onLogout={handleLogout}
           onNoticeConsumed={() => setAuthNotice(null)}
         />
       )}
@@ -403,6 +435,7 @@ function ContactPage() {
               value={topic}
               onChange={(event) => setTopic(event.target.value)}
               placeholder="What should we help with?"
+              minLength={3}
               required
             />
           </label>
@@ -413,9 +446,11 @@ function ContactPage() {
               onChange={(event) => setMessage(event.target.value)}
               placeholder="Share the details here."
               rows={7}
+              minLength={10}
               required
             />
           </label>
+          <p className="form-note">Please write at least 10 characters so the team has enough context to help.</p>
           {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
           <button className="primary-button full-width" type="submit" disabled={loading}>
             {loading ? "Sending..." : "Send message"}
@@ -426,15 +461,308 @@ function ContactPage() {
   );
 }
 
+function ApplicantPortal({
+  user,
+  onNavigate,
+  onLogout,
+}: {
+  user: CurrentUser;
+  onNavigate: (view: View) => void;
+  onLogout: () => void;
+}) {
+  const [activeTab, setActiveTab] = useState<PortalTab>("resume");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  return (
+    <main className="portal-page">
+      <div className="portal-topbar">
+        <button className="secondary-button" type="button" onClick={() => onNavigate("home")}>
+          Home
+        </button>
+        <div>
+          <span>Applicant portal</span>
+          <strong>{user.fullName || user.email}</strong>
+        </div>
+        <button className="secondary-button" type="button" onClick={() => setSettingsOpen(true)}>
+          Settings
+        </button>
+      </div>
+
+      <section className="portal-hero">
+        <div>
+          <p className="eyebrow">Welcome back</p>
+          <h1>Run the application workflow from one place.</h1>
+          <p>
+            Upload a resume for the future ATS scan, ask questions in the global forum, and keep your account controls
+            close without leaving the portal.
+          </p>
+        </div>
+        <div className="portal-status-card">
+          <span>Next action</span>
+          <strong>Upload resume</strong>
+          <p>PDF intake is ready. Resume parsing and ATS scoring will connect here next.</p>
+        </div>
+      </section>
+
+      <div className="portal-tabs" aria-label="Applicant portal sections">
+        <button className={activeTab === "resume" ? "selected" : ""} onClick={() => setActiveTab("resume")} type="button">
+          Resume scan
+        </button>
+        <button className={activeTab === "forum" ? "selected" : ""} onClick={() => setActiveTab("forum")} type="button">
+          Global forum
+        </button>
+      </div>
+
+      {activeTab === "resume" ? <ResumeUploadPanel /> : <ForumPanel currentUser={user} />}
+
+      {settingsOpen && (
+        <div className="settings-backdrop" role="presentation" onClick={() => setSettingsOpen(false)}>
+          <aside className="settings-panel" aria-label="Applicant settings" onClick={(event) => event.stopPropagation()}>
+            <div className="settings-header">
+              <div>
+                <p className="eyebrow">Settings</p>
+                <h2>Account controls</h2>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setSettingsOpen(false)} aria-label="Close settings">
+                x
+              </button>
+            </div>
+            <div className="settings-user">
+              <span>{user.fullName || "Applicant"}</span>
+              <strong>{user.email}</strong>
+            </div>
+            <p className="settings-note">More settings will live here later.</p>
+            <button className="primary-button full-width" type="button" onClick={onLogout}>
+              Sign out
+            </button>
+          </aside>
+        </div>
+      )}
+    </main>
+  );
+}
+
+function ResumeUploadPanel() {
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [notice, setNotice] = useState<Notice>(null);
+
+  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    setNotice(null);
+
+    if (!file) {
+      setSelectedFile(null);
+      return;
+    }
+
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      setSelectedFile(null);
+      setNotice({ type: "error", text: "Please upload a PDF resume." });
+      event.target.value = "";
+      return;
+    }
+
+    setSelectedFile(file);
+    setNotice({ type: "success", text: "Resume accepted. ATS scanning will connect here next." });
+  }
+
+  return (
+    <section className="portal-grid">
+      <article className="portal-card upload-card">
+        <span className="card-label">Resume upload</span>
+        <h2>Upload a PDF for the ATS scan.</h2>
+        <p>
+          This intake accepts PDF resumes now. The future scanner will parse the file, compare it against job
+          descriptions, and return an interview-fit score with resume fixes.
+        </p>
+        <label className="file-drop">
+          <input type="file" accept="application/pdf,.pdf" onChange={handleFileChange} />
+          <strong>{selectedFile ? selectedFile.name : "Choose resume PDF"}</strong>
+          <span>{selectedFile ? `${formatFileSize(selectedFile.size)} ready for scanner setup` : "PDF only"}</span>
+        </label>
+        {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+      </article>
+
+      <article className="portal-card scan-card">
+        <span className="card-label">ATS scan preview</span>
+        <div className="scan-preview">
+          <div>
+            <strong>Pending</strong>
+            <span>Resume parser</span>
+          </div>
+          <div>
+            <strong>Next</strong>
+            <span>Job description match</span>
+          </div>
+          <div>
+            <strong>Later</strong>
+            <span>Score recommendations</span>
+          </div>
+        </div>
+      </article>
+    </section>
+  );
+}
+
+function ForumPanel({ currentUser }: { currentUser: CurrentUser }) {
+  const [posts, setPosts] = useState<ForumPost[]>([]);
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [notice, setNotice] = useState<Notice>(null);
+  const [loading, setLoading] = useState(true);
+  const [posting, setPosting] = useState(false);
+
+  useEffect(() => {
+    loadPosts();
+  }, []);
+
+  async function loadPosts() {
+    setLoading(true);
+    try {
+      const result = await apiRequest("/api/forum/posts");
+      setPosts(result.posts ?? []);
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreatePost(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPosting(true);
+    setNotice(null);
+
+    try {
+      await apiRequest("/api/forum/posts", {
+        method: "POST",
+        body: { subject, body },
+      });
+      setSubject("");
+      setBody("");
+      setNotice({ type: "success", text: "Post created." });
+      await loadPosts();
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  async function handleComment(postId: string) {
+    const draft = commentDrafts[postId]?.trim() ?? "";
+    if (!draft) {
+      return;
+    }
+
+    try {
+      await apiRequest(`/api/forum/posts/${postId}/comments`, {
+        method: "POST",
+        body: { body: draft },
+      });
+      setCommentDrafts((drafts) => ({ ...drafts, [postId]: "" }));
+      await loadPosts();
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    }
+  }
+
+  async function handleResolved(post: ForumPost) {
+    try {
+      await apiRequest(`/api/forum/posts/${post.id}/resolved`, {
+        method: "PATCH",
+        body: { isResolved: !post.isResolved },
+      });
+      await loadPosts();
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    }
+  }
+
+  return (
+    <section className="forum-layout">
+      <aside className="portal-card forum-composer">
+        <span className="card-label">Global forum</span>
+        <h2>Create a post.</h2>
+        <p>Ask application questions, share blockers, and help other applicants. Posts and replies are stored by date.</p>
+        <form className="auth-form" onSubmit={handleCreatePost}>
+          <label>
+            Subject
+            <input value={subject} onChange={(event) => setSubject(event.target.value)} minLength={4} maxLength={160} required />
+          </label>
+          <label>
+            Post
+            <textarea value={body} onChange={(event) => setBody(event.target.value)} minLength={10} maxLength={4000} required />
+          </label>
+          <p className="form-note">Posts with blocked inappropriate keywords cannot be published.</p>
+          {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+          <button className="primary-button full-width" type="submit" disabled={posting}>
+            {posting ? "Posting..." : "Publish post"}
+          </button>
+        </form>
+      </aside>
+
+      <div className="forum-feed">
+        {loading && <p className="empty-state">Loading forum posts...</p>}
+        {!loading && posts.length === 0 && <p className="empty-state">No posts yet. Start the first thread.</p>}
+        {posts.map((post) => (
+          <article className={post.isResolved ? "forum-post resolved" : "forum-post"} key={post.id}>
+            <div className="forum-post-header">
+              <div>
+                <span>{post.authorName}</span>
+                <time>{formatDate(post.createdAt)}</time>
+              </div>
+              {post.authorUserId === currentUser.id && (
+                <button className="resolved-toggle" type="button" onClick={() => handleResolved(post)}>
+                  {post.isResolved ? "Resolved" : "Mark resolved"}
+                </button>
+              )}
+              {post.authorUserId !== currentUser.id && post.isResolved && <span className="resolved-badge">Resolved</span>}
+            </div>
+            <h3>{post.subject}</h3>
+            <p>{post.body}</p>
+            <div className="comments-list">
+              {post.comments.map((comment) => (
+                <div className="comment" key={comment.id}>
+                  <div>
+                    <strong>{comment.authorName}</strong>
+                    <time>{formatDate(comment.createdAt)}</time>
+                  </div>
+                  <p>{comment.body}</p>
+                </div>
+              ))}
+            </div>
+            <div className="comment-box">
+              <input
+                value={commentDrafts[post.id] ?? ""}
+                onChange={(event) => setCommentDrafts((drafts) => ({ ...drafts, [post.id]: event.target.value }))}
+                placeholder="Reply to this post"
+              />
+              <button className="secondary-button" type="button" onClick={() => handleComment(post.id)}>
+                Reply
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ApplicantAuth({
   currentUser,
   initialNotice,
   onAuthenticated,
+  onNavigate,
+  onLogout,
   onNoticeConsumed,
 }: {
   currentUser: CurrentUser | null;
   initialNotice: Notice;
   onAuthenticated: (user: CurrentUser) => void;
+  onNavigate: (view: View) => void;
+  onLogout: () => void;
   onNoticeConsumed: () => void;
 }) {
   const [mode, setMode] = useState<AuthMode>("signin");
@@ -446,6 +774,7 @@ function ApplicantAuth({
   const [notice, setNotice] = useState<Notice>(null);
   const [loading, setLoading] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [resending, setResending] = useState(false);
   const submitLabel = mode === "signin" ? "Sign in as applicant" : "Create applicant account";
 
   useEffect(() => {
@@ -514,6 +843,27 @@ function ApplicantAuth({
     } finally {
       setVerifying(false);
     }
+  }
+
+  async function handleResendVerification() {
+    setResending(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest("/api/resend-verification", {
+        method: "POST",
+        body: { email, role: "applicant" },
+      });
+      setNotice({ type: "success", text: result.message ?? "Verification email sent." });
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setResending(false);
+    }
+  }
+
+  if (currentUser?.role === "applicant" && currentUser.emailVerified) {
+    return <ApplicantPortal user={currentUser} onNavigate={onNavigate} onLogout={onLogout} />;
   }
 
   return (
@@ -587,6 +937,11 @@ function ApplicantAuth({
           {loading ? "Working..." : submitLabel}
         </button>
       </form>
+      {mode === "signin" && (
+        <button className="ghost-button full-width" type="button" disabled={resending || !email} onClick={handleResendVerification}>
+          {resending ? "Sending..." : "Resend verification email"}
+        </button>
+      )}
       {currentUser?.role === "applicant" && !currentUser.emailVerified && (
         <EmailVerificationForm
           token={verificationToken}
@@ -620,6 +975,7 @@ function HirerAuth({
   const [notice, setNotice] = useState<Notice>(null);
   const [loading, setLoading] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [resending, setResending] = useState(false);
   const submitLabel = mode === "signin" ? "Sign in as hirer" : "Create hirer account";
 
   useEffect(() => {
@@ -690,6 +1046,23 @@ function HirerAuth({
       setNotice({ type: "error", text: getErrorMessage(error) });
     } finally {
       setVerifying(false);
+    }
+  }
+
+  async function handleResendVerification() {
+    setResending(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest("/api/resend-verification", {
+        method: "POST",
+        body: { email, role: "hirer" },
+      });
+      setNotice({ type: "success", text: result.message ?? "Verification email sent." });
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setResending(false);
     }
   }
 
@@ -776,6 +1149,11 @@ function HirerAuth({
           {loading ? "Working..." : submitLabel}
         </button>
       </form>
+      {mode === "signin" && (
+        <button className="ghost-button full-width" type="button" disabled={resending || !email} onClick={handleResendVerification}>
+          {resending ? "Sending..." : "Resend verification email"}
+        </button>
+      )}
       {currentUser?.role === "hirer" && !currentUser.emailVerified && (
         <EmailVerificationForm
           token={verificationToken}
@@ -927,7 +1305,7 @@ async function apiRequest(path: string, options: { method?: string; body?: Recor
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(payload.error ?? "Request failed.");
+    throw new Error(getApiErrorMessage(payload));
   }
 
   return payload;
@@ -957,6 +1335,39 @@ async function verifyEmailFromLink(token: string) {
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong.";
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024 * 1024) {
+    return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getApiErrorMessage(payload: {
+  error?: string;
+  issues?: { fieldErrors?: Record<string, string[]>; formErrors?: string[] };
+}) {
+  const fieldErrors = payload.issues?.fieldErrors;
+  const firstFieldError = fieldErrors
+    ? Object.values(fieldErrors)
+        .flat()
+        .find(Boolean)
+    : null;
+  const firstFormError = payload.issues?.formErrors?.find(Boolean);
+
+  return firstFieldError ?? firstFormError ?? payload.error ?? "Request failed.";
 }
 
 function validateSignupPassword(mode: AuthMode, password: string, confirmPassword: string) {

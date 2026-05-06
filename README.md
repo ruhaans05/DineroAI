@@ -126,7 +126,12 @@ Implemented API routes:
 - `POST /api/signin`
 - `POST /api/logout`
 - `POST /api/verify-email`
+- `POST /api/resend-verification`
 - `POST /api/contact`
+- `GET /api/forum/posts`
+- `POST /api/forum/posts`
+- `POST /api/forum/posts/:id/comments`
+- `PATCH /api/forum/posts/:id/resolved`
 
 Signup creates an unverified account and a 30-minute email verification token. Users cannot sign in until they click the verification link. Signin creates an HTTP-only session cookie backed by the `user_sessions` table.
 
