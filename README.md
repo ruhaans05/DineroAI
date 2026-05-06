@@ -129,6 +129,15 @@ Implemented API routes:
 
 Signup and signin create HTTP-only session cookies backed by the `user_sessions` table. Email verification tokens are stored in the database. Actual email sending is intentionally not wired yet.
 
+Email verification uses Resend when configured:
+
+```bash
+RESEND_API_KEY=your_resend_key
+EMAIL_FROM=Dinero <onboarding@resend.dev>
+```
+
+Without `RESEND_API_KEY`, Dinero logs the verification link in the API console for local development.
+
 ## Company Verification
 
 When a hirer signs up with a new company, Dinero first checks whether the company already exists in the app by name or email domain. If no existing company matches, it creates a company record and stores a verification check.

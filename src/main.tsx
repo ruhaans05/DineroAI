@@ -307,6 +307,7 @@ function ApplicantAuth({
                 required
               />
             </label>
+            <PasswordMatchMessage password={password} confirmPassword={confirmPassword} />
             <PasswordRequirements password={password} />
           </>
         )}
@@ -465,6 +466,7 @@ function HirerAuth({
                 required
               />
             </label>
+            <PasswordMatchMessage password={password} confirmPassword={confirmPassword} />
             <PasswordRequirements password={password} />
           </>
         )}
@@ -541,6 +543,20 @@ function PasswordRequirements({ password }: { password: string }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+function PasswordMatchMessage({ password, confirmPassword }: { password: string; confirmPassword: string }) {
+  if (!confirmPassword) {
+    return null;
+  }
+
+  const matches = password === confirmPassword;
+
+  return (
+    <p className={`password-match ${matches ? "matched" : "unmatched"}`}>
+      {matches ? "Passwords match." : "Passwords do not match yet."}
+    </p>
   );
 }
 
