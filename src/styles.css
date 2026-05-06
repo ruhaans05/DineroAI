@@ -35,7 +35,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -306,7 +307,8 @@ h1 {
 }
 
 .audience-section,
-.how-section {
+.how-section,
+.content-page {
   width: min(1180px, calc(100% - 40px));
   margin: 0 auto;
   padding: 72px 0;
@@ -404,6 +406,188 @@ h1 {
   background: var(--green-soft);
   color: var(--green-dark);
   font-weight: 900;
+}
+
+.about-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 430px);
+  align-items: center;
+  gap: 54px;
+  min-height: 620px;
+}
+
+.about-hero p,
+.contact-intro p,
+.split-band p {
+  color: var(--muted);
+  font-size: 1.06rem;
+  line-height: 1.7;
+}
+
+.about-score-panel {
+  display: grid;
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(232, 248, 238, 0.92), rgba(255, 255, 255, 0.96)),
+    var(--white);
+  box-shadow: var(--shadow);
+  padding: 30px;
+}
+
+.about-score-panel span {
+  color: var(--green-dark);
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.about-score-panel strong {
+  color: var(--black);
+  font-size: 5rem;
+  line-height: 0.92;
+}
+
+.about-score-panel p {
+  margin-bottom: 8px;
+  color: var(--ink);
+  line-height: 1.55;
+}
+
+.about-score-panel div {
+  display: grid;
+  gap: 8px;
+}
+
+.about-score-panel label {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 850;
+}
+
+progress {
+  width: 100%;
+  height: 10px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: #dde8e1;
+}
+
+progress::-webkit-progress-bar {
+  border-radius: 999px;
+  background: #dde8e1;
+}
+
+progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: var(--green);
+}
+
+progress::-moz-progress-bar {
+  border-radius: 999px;
+  background: var(--green);
+}
+
+.about-band {
+  padding: 72px 0;
+  border-top: 1px solid var(--line);
+}
+
+.value-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.value-card,
+.contact-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: 0 16px 44px rgba(17, 21, 19, 0.06);
+}
+
+.value-card {
+  min-height: 250px;
+  padding: 26px;
+}
+
+.value-card h3 {
+  color: var(--black);
+  font-size: 1.35rem;
+  line-height: 1.18;
+}
+
+.value-card p {
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.split-band {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 42px;
+}
+
+.split-band h2 {
+  margin-bottom: 0;
+  color: var(--black);
+  font-size: clamp(2rem, 4vw, 3.2rem);
+  line-height: 1;
+}
+
+.contact-page {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(360px, 520px);
+  gap: 54px;
+  width: min(1080px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 90px 0;
+}
+
+.contact-intro {
+  padding-top: 34px;
+}
+
+.contact-intro h1 {
+  font-size: clamp(2.4rem, 5vw, 4.5rem);
+}
+
+.contact-direct {
+  display: grid;
+  gap: 4px;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--white);
+  padding: 16px 18px;
+}
+
+.contact-direct span {
+  color: var(--green-dark);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.contact-direct strong {
+  overflow-wrap: anywhere;
+  color: var(--black);
+}
+
+.contact-panel {
+  padding: 26px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .auth-page {
@@ -532,7 +716,8 @@ h1 {
 }
 
 .auth-form input,
-.auth-form select {
+.auth-form select,
+.auth-form textarea {
   width: 100%;
   min-height: 50px;
   border: 1px solid var(--line);
@@ -544,9 +729,16 @@ h1 {
 }
 
 .auth-form input:focus,
-.auth-form select:focus {
+.auth-form select:focus,
+.auth-form textarea:focus {
   border-color: var(--green);
   box-shadow: 0 0 0 4px rgba(22, 163, 74, 0.12);
+}
+
+.auth-form textarea {
+  min-height: 160px;
+  padding-top: 13px;
+  resize: vertical;
 }
 
 .auth-form input:disabled {
@@ -649,7 +841,10 @@ h1 {
 
 @media (max-width: 940px) {
   .hero-section,
-  .auth-page {
+  .auth-page,
+  .about-hero,
+  .contact-page,
+  .split-band {
     grid-template-columns: 1fr;
   }
 
@@ -663,6 +858,10 @@ h1 {
 
   .steps-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .value-grid {
+    grid-template-columns: 1fr;
   }
 
   .auth-intro {
@@ -685,18 +884,22 @@ h1 {
 
   nav {
     width: 100%;
+    flex-wrap: wrap;
     justify-content: space-between;
+    border-radius: 8px;
   }
 
   .nav-link {
-    flex: 1;
+    flex: 1 1 30%;
     padding: 9px 8px;
   }
 
   .hero-section,
   .audience-section,
   .how-section,
-  .auth-page {
+  .content-page,
+  .auth-page,
+  .contact-page {
     width: min(100% - 28px, 1180px);
   }
 
@@ -707,7 +910,8 @@ h1 {
   .hero-actions,
   .metric-strip,
   .audience-grid,
-  .steps-grid {
+  .steps-grid,
+  .form-grid {
     grid-template-columns: 1fr;
   }
 

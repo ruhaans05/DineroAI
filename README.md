@@ -126,6 +126,7 @@ Implemented API routes:
 - `POST /api/signin`
 - `POST /api/logout`
 - `POST /api/verify-email`
+- `POST /api/contact`
 
 Signup creates an unverified account and a 30-minute email verification token. Users cannot sign in until they click the verification link. Signin creates an HTTP-only session cookie backed by the `user_sessions` table.
 
@@ -135,9 +136,10 @@ Email verification uses Resend when configured:
 RESEND_API_KEY=your_resend_key
 EMAIL_FROM=Dinero <onboarding@resend.dev>
 EMAIL_REPLY_TO=dinerobusinessofficial@gmail.com
+CONTACT_TO=dinerobusinessofficial@gmail.com
 ```
 
-Without `RESEND_API_KEY`, Dinero logs the verification link in the API console for local development. `EMAIL_FROM` must be a sender Resend allows; `EMAIL_REPLY_TO` can point replies to a Gmail inbox.
+Without `RESEND_API_KEY`, Dinero logs verification and contact emails in the API console for local development. `EMAIL_FROM` must be a sender Resend allows; `EMAIL_REPLY_TO` can point replies to a Gmail inbox. Contact page submissions are sent to `CONTACT_TO`.
 
 ## Company Verification
 

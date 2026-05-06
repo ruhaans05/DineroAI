@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import heroImage from "./assets/hero-dinero.png";
 import "./styles.css";
 
-type View = "home" | "applicant" | "hirer";
+type View = "home" | "about" | "contact" | "applicant" | "hirer";
 type AuthMode = "signin" | "signup";
 type Notice = { type: "success" | "error"; text: string } | null;
 type AuthNotice = { view: "applicant" | "hirer"; notice: NonNullable<Notice> } | null;
@@ -75,6 +75,8 @@ function App() {
       <Header view={view} currentUser={currentUser} onNavigate={setView} onLogout={handleLogout} />
       {!authChecked && <div className="session-loading">Checking session...</div>}
       {view === "home" && <LandingPage onNavigate={setView} />}
+      {view === "about" && <AboutPage onNavigate={setView} />}
+      {view === "contact" && <ContactPage />}
       {view === "applicant" && (
         <ApplicantAuth
           currentUser={currentUser}
@@ -115,6 +117,15 @@ function Header({
       <nav aria-label="Primary navigation">
         <button className={view === "home" ? "nav-link active" : "nav-link"} onClick={() => onNavigate("home")}>
           Home
+        </button>
+        <button className={view === "about" ? "nav-link active" : "nav-link"} onClick={() => onNavigate("about")}>
+          About
+        </button>
+        <button
+          className={view === "contact" ? "nav-link active" : "nav-link"}
+          onClick={() => onNavigate("contact")}
+        >
+          Contact
         </button>
         <button
           className={view === "applicant" ? "nav-link active" : "nav-link"}
@@ -227,6 +238,189 @@ function LandingPage({ onNavigate }: { onNavigate: (view: View) => void }) {
             </article>
           ))}
         </div>
+      </section>
+    </main>
+  );
+}
+
+function AboutPage({ onNavigate }: { onNavigate: (view: View) => void }) {
+  return (
+    <main className="content-page">
+      <section className="about-hero">
+        <div>
+          <p className="eyebrow">About Dinero</p>
+          <h1>Applications should feel less random.</h1>
+          <p>
+            Dinero is being built for the moment when a candidate has a resume, a role they want, and no clear answer
+            to the question that matters most: is this worth my time, and what would make me more competitive?
+          </p>
+          <div className="hero-actions">
+            <button className="primary-button" onClick={() => onNavigate("applicant")}>
+              Start as applicant
+            </button>
+            <button className="secondary-button" onClick={() => onNavigate("hirer")}>
+              Start as hirer
+            </button>
+          </div>
+        </div>
+        <div className="about-score-panel" aria-label="Dinero score preview">
+          <span>Interview fit</span>
+          <strong>78%</strong>
+          <p>Resume evidence aligns with role scope, core skills, and hiring signal.</p>
+          <div>
+            <label>Resume match</label>
+            <progress value="78" max="100" />
+          </div>
+          <div>
+            <label>Missing keywords</label>
+            <progress value="28" max="100" />
+          </div>
+          <div>
+            <label>Project proof</label>
+            <progress value="66" max="100" />
+          </div>
+        </div>
+      </section>
+
+      <section className="about-band" aria-labelledby="about-promise">
+        <div className="section-heading">
+          <p className="eyebrow">The promise</p>
+          <h2 id="about-promise">Better choices before the application goes out.</h2>
+        </div>
+        <div className="value-grid">
+          {[
+            [
+              "Know where to focus",
+              "Dinero helps applicants compare roles by actual fit instead of sending the same resume everywhere.",
+            ],
+            [
+              "Improve with specifics",
+              "Feedback is tied to the job description, so resume edits become practical: skills, phrasing, projects, and proof.",
+            ],
+            [
+              "Learn from outcomes",
+              "As users opt in and report interviews, the score can become sharper and more honest over time.",
+            ],
+          ].map(([title, body]) => (
+            <article className="value-card" key={title}>
+              <h3>{title}</h3>
+              <p>{body}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="about-band split-band" aria-labelledby="why-teams">
+        <div>
+          <p className="eyebrow">For hiring teams</p>
+          <h2 id="why-teams">Cleaner context, fewer noisy matches.</h2>
+        </div>
+        <p>
+          Hirers can see why Dinero thinks a candidate fits a role, then give feedback when the model is right or
+          wrong. That closes the loop between resume signal and real hiring judgment.
+        </p>
+      </section>
+    </main>
+  );
+}
+
+function ContactPage() {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [audience, setAudience] = useState("applicant");
+  const [topic, setTopic] = useState("");
+  const [message, setMessage] = useState("");
+  const [notice, setNotice] = useState<Notice>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest("/api/contact", {
+        method: "POST",
+        body: { name, email, audience, topic, message },
+      });
+      setNotice({ type: "success", text: result.message ?? "Your message was sent." });
+      setName("");
+      setEmail("");
+      setAudience("applicant");
+      setTopic("");
+      setMessage("");
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <main className="contact-page">
+      <section className="contact-intro">
+        <p className="eyebrow">Contact Dinero</p>
+        <h1>Questions, concerns, or early access ideas.</h1>
+        <p>
+          Send a note to the Dinero team. Applicant feedback, hiring-team questions, bug reports, and partnership ideas
+          all land in the same inbox so nothing gets lost.
+        </p>
+        <div className="contact-direct">
+          <span>Email inbox</span>
+          <strong>dinerobusinessofficial@gmail.com</strong>
+        </div>
+      </section>
+
+      <section className="contact-panel" aria-label="Contact form">
+        <form className="auth-form" onSubmit={handleSubmit}>
+          <div className="form-grid">
+            <label>
+              Name
+              <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" required />
+            </label>
+            <label>
+              Email
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@example.com"
+                required
+              />
+            </label>
+          </div>
+          <label>
+            I am a
+            <select value={audience} onChange={(event) => setAudience(event.target.value)}>
+              <option value="applicant">Applicant</option>
+              <option value="hirer">Hirer</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label>
+            Topic
+            <input
+              value={topic}
+              onChange={(event) => setTopic(event.target.value)}
+              placeholder="What should we help with?"
+              required
+            />
+          </label>
+          <label>
+            Question or concern
+            <textarea
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              placeholder="Share the details here."
+              rows={7}
+              required
+            />
+          </label>
+          {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+          <button className="primary-button full-width" type="submit" disabled={loading}>
+            {loading ? "Sending..." : "Send message"}
+          </button>
+        </form>
       </section>
     </main>
   );
