@@ -194,6 +194,12 @@ h1 {
   transform: translateY(-1px);
 }
 
+.primary-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+  transform: none;
+}
+
 .secondary-button {
   border: 1px solid var(--black);
   background: var(--white);
@@ -471,6 +477,12 @@ h1 {
   box-shadow: 0 0 0 4px rgba(22, 163, 74, 0.12);
 }
 
+.auth-form input:disabled {
+  cursor: not-allowed;
+  background: #f5f7f6;
+  color: var(--muted);
+}
+
 .form-note {
   margin: 0;
   border-left: 3px solid var(--green);
@@ -480,6 +492,27 @@ h1 {
   font-size: 0.9rem;
   font-weight: 750;
   line-height: 1.45;
+}
+
+.form-message {
+  margin: 0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.form-message.success {
+  border: 1px solid rgba(22, 163, 74, 0.2);
+  background: var(--green-soft);
+  color: var(--green-dark);
+}
+
+.form-message.error {
+  border: 1px solid rgba(180, 35, 24, 0.18);
+  background: #fff1f0;
+  color: #9b1c13;
 }
 
 @media (max-width: 940px) {

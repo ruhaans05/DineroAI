@@ -1,13 +1,20 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import heroImage from "./assets/hero-dinero.png";
 import "./styles.css";
 
 type View = "home" | "applicant" | "hirer";
 type AuthMode = "signin" | "signup";
+type Notice = { type: "success" | "error"; text: string } | null;
+type CompanyOption = {
+  id: string;
+  name: string;
+  domain: string | null;
+  verification_status: string;
+};
 
-const roleTypes = ["Software Engineering", "Machine Learning", "Data Science", "Product Engineering"];
-const companies = ["Select a company", "Northstar Labs", "BrightHire Systems", "Atlas Data", "Add a new company"];
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+const ADD_COMPANY_VALUE = "add-company";
 
 function App() {
   const [view, setView] = useState<View>("home");
@@ -143,7 +150,40 @@ function LandingPage({ onNavigate }: { onNavigate: (view: View) => void }) {
 
 function ApplicantAuth() {
   const [mode, setMode] = useState<AuthMode>("signin");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [notice, setNotice] = useState<Notice>(null);
+  const [loading, setLoading] = useState(false);
   const submitLabel = mode === "signin" ? "Sign in as applicant" : "Create applicant account";
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest(mode === "signin" ? "/api/signin" : "/api/applicants/signup", {
+        method: "POST",
+        body: {
+          email,
+          password,
+          ...(mode === "signin" ? { role: "applicant" } : { fullName: fullName || undefined }),
+        },
+      });
+
+      setNotice({
+        type: "success",
+        text:
+          result.message ??
+          (mode === "signin" ? "Signed in as applicant." : "Applicant account created. Check your email next."),
+      });
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <AuthLayout
@@ -154,35 +194,48 @@ function ApplicantAuth() {
       previewItems={["Resume PDF upload", "Interview chance by role", "Email verification after signup"]}
     >
       <SegmentedControl mode={mode} setMode={setMode} />
-      <form className="auth-form">
+      <form className="auth-form" onSubmit={handleSubmit}>
+        {mode === "signup" && (
+          <label>
+            Full name
+            <input
+              type="text"
+              placeholder="Your name"
+              value={fullName}
+              onChange={(event) => setFullName(event.target.value)}
+            />
+          </label>
+        )}
         <label>
           Email
-          <input type="email" placeholder="you@example.com" />
+          <input
+            type="email"
+            placeholder="you@example.com"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+          />
         </label>
         <label>
           Password
-          <input type="password" placeholder="Enter your password" />
+          <input
+            type="password"
+            placeholder="Enter your password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            minLength={mode === "signup" ? 8 : 1}
+            required
+          />
         </label>
         {mode === "signup" && (
-          <>
-            <label>
-              Primary role target
-              <select defaultValue="">
-                <option value="" disabled>
-                  Choose a role family
-                </option>
-                {roleTypes.map((role) => (
-                  <option key={role}>{role}</option>
-                ))}
-              </select>
-            </label>
-            <p className="form-note">
-              After signup, Dinero will ask you to verify your email before resume uploads and scoring are enabled.
-            </p>
-          </>
+          <p className="form-note">
+            After signup, Dinero will ask you to verify your email. Role focus will be inferred later from your resume
+            and target jobs.
+          </p>
         )}
-        <button className="primary-button full-width" type="button">
-          {submitLabel}
+        {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+        <button className="primary-button full-width" type="submit" disabled={loading}>
+          {loading ? "Working..." : submitLabel}
         </button>
       </form>
     </AuthLayout>
@@ -191,16 +244,70 @@ function ApplicantAuth() {
 
 function HirerAuth() {
   const [mode, setMode] = useState<AuthMode>("signin");
-  const [company, setCompany] = useState(companies[0]);
-  const addingCompany = company === "Add a new company";
+  const [companies, setCompanies] = useState<CompanyOption[]>([]);
+  const [company, setCompany] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [notice, setNotice] = useState<Notice>(null);
+  const [loading, setLoading] = useState(false);
+  const addingCompany = company === ADD_COMPANY_VALUE;
   const submitLabel = mode === "signin" ? "Sign in as hirer" : "Create hirer account";
+
+  useEffect(() => {
+    apiRequest("/api/companies")
+      .then((result) => {
+        setCompanies(result.companies ?? []);
+      })
+      .catch(() => {
+        setCompanies([]);
+      });
+  }, []);
 
   const helperText = useMemo(() => {
     if (mode === "signin") {
       return "Choose the company connected to your hiring account.";
     }
-    return "New company signups will require email verification before role management is enabled.";
-  }, [mode]);
+    if (addingCompany) {
+      return "Dinero will check whether this is a real company, match it to the canonical company, and prevent duplicate company records.";
+    }
+    return "New hirer accounts require email verification before role management is enabled.";
+  }, [addingCompany, mode]);
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest(mode === "signin" ? "/api/signin" : "/api/hirers/signup", {
+        method: "POST",
+        body:
+          mode === "signin"
+            ? { email, password, role: "hirer" }
+            : {
+                email,
+                password,
+                fullName: fullName || undefined,
+                companyId: !addingCompany && company ? company : undefined,
+                companyName: addingCompany ? companyName : undefined,
+              },
+      });
+
+      const companyMessage = result.company?.message ? ` ${result.company.message}` : "";
+      setNotice({
+        type: "success",
+        text:
+          (result.message ?? (mode === "signin" ? "Signed in as hirer." : "Hirer account created.")) +
+          companyMessage,
+      });
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <AuthLayout
@@ -211,32 +318,71 @@ function HirerAuth() {
       previewItems={["Company role setup", "Prediction quality feedback", "Optional future bias scoring"]}
     >
       <SegmentedControl mode={mode} setMode={setMode} />
-      <form className="auth-form">
+      <form className="auth-form" onSubmit={handleSubmit}>
+        {mode === "signup" && (
+          <label>
+            Full name
+            <input
+              type="text"
+              placeholder="Your name"
+              value={fullName}
+              onChange={(event) => setFullName(event.target.value)}
+            />
+          </label>
+        )}
         <label>
           Work email
-          <input type="email" placeholder="name@company.com" />
+          <input
+            type="email"
+            placeholder="name@company.com"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+          />
         </label>
         <label>
           Password
-          <input type="password" placeholder="Enter your password" />
+          <input
+            type="password"
+            placeholder="Enter your password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            minLength={mode === "signup" ? 8 : 1}
+            required
+          />
         </label>
         <label>
           Company
-          <select value={company} onChange={(event) => setCompany(event.target.value)}>
-            {companies.map((companyName) => (
-              <option key={companyName}>{companyName}</option>
+          <select value={company} onChange={(event) => setCompany(event.target.value)} required={mode === "signup"}>
+            <option value="" disabled>
+              Select a company
+            </option>
+            {companies.map((companyOption) => (
+              <option key={companyOption.id} value={companyOption.id}>
+                {companyOption.name}
+                {companyOption.domain ? ` (${companyOption.domain})` : ""}
+              </option>
             ))}
+            {mode === "signup" && <option value={ADD_COMPANY_VALUE}>Add a new company</option>}
           </select>
         </label>
         {(mode === "signup" || addingCompany) && (
           <label>
             Company name
-            <input type="text" placeholder="Company legal or public name" />
+            <input
+              type="text"
+              placeholder="Company legal or public name"
+              value={companyName}
+              onChange={(event) => setCompanyName(event.target.value)}
+              required={addingCompany}
+              disabled={!addingCompany}
+            />
           </label>
         )}
         <p className="form-note">{helperText}</p>
-        <button className="primary-button full-width" type="button">
-          {submitLabel}
+        {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+        <button className="primary-button full-width" type="submit" disabled={loading}>
+          {loading ? "Working..." : submitLabel}
         </button>
       </form>
     </AuthLayout>
@@ -298,3 +444,23 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </React.StrictMode>,
 );
+
+async function apiRequest(path: string, options: { method?: string; body?: Record<string, unknown> } = {}) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: options.method ?? "GET",
+    headers: options.body ? { "Content-Type": "application/json" } : undefined,
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(payload.error ?? "Request failed.");
+  }
+
+  return payload;
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Something went wrong.";
+}

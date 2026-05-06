@@ -88,6 +88,66 @@ The default local connection string is:
 postgresql://dinero:dinero_dev_password@localhost:5432/dinero
 ```
 
+## Local API
+
+The signup flow is backed by a local Express API connected to PostgreSQL.
+
+Start the database, apply migrations, then start the API:
+
+```bash
+npm run db:up
+npm run db:migrate
+npm run api:dev
+```
+
+In another terminal, start the React frontend:
+
+```bash
+npm run dev -- --port 5174
+```
+
+The frontend proxies `/api` requests to `http://localhost:8787`.
+
+Implemented API routes:
+
+- `GET /api/health`
+- `GET /api/companies`
+- `POST /api/applicants/signup`
+- `POST /api/hirers/signup`
+- `POST /api/signin`
+- `POST /api/verify-email`
+
+Email verification tokens are stored in the database. Actual email sending is intentionally not wired yet.
+
+## Company Verification
+
+When a hirer signs up with a new company, Dinero first checks whether the company already exists in the app by name or email domain. If no existing company matches, it creates a company record and stores a verification check.
+
+If no verification provider is configured, new companies are saved as `pending` for manual review.
+
+To wire an AI search provider later, set:
+
+```bash
+COMPANY_VERIFICATION_PROVIDER=perplexity
+COMPANY_VERIFICATION_API_KEY=your_key_here
+```
+
+or:
+
+```bash
+COMPANY_VERIFICATION_PROVIDER=grok
+COMPANY_VERIFICATION_API_KEY=your_key_here
+```
+
+Optional provider overrides:
+
+```bash
+COMPANY_VERIFICATION_API_URL=
+COMPANY_VERIFICATION_MODEL=
+```
+
+The provider response is stored in `company_verification_checks`, and summarized fields are copied to `hiring_companies`.
+
 ## Data Model Draft
 
 Core tables:

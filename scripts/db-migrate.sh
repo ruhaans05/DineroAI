@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-"$(dirname "$0")/db-compose.sh" exec -T postgres psql \
-  -U "${POSTGRES_USER:-dinero}" \
-  -d "${POSTGRES_DB:-dinero}" \
-  -v ON_ERROR_STOP=1 \
-  -f /database/migrations/001_initial_schema.sql
+for migration in db/migrations/*.sql; do
+  echo "Applying ${migration}"
+  "$(dirname "$0")/db-compose.sh" exec -T postgres psql \
+    -U "${POSTGRES_USER:-dinero}" \
+    -d "${POSTGRES_DB:-dinero}" \
+    -v ON_ERROR_STOP=1 \
+    -f "/database/migrations/$(basename "$migration")"
+done
