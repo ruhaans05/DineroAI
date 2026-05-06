@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import heroImage from "./assets/hero-dinero.png";
 import "./styles.css";
@@ -6,30 +6,55 @@ import "./styles.css";
 type View = "home" | "applicant" | "hirer";
 type AuthMode = "signin" | "signup";
 type Notice = { type: "success" | "error"; text: string } | null;
-type CompanyOption = {
+type CurrentUser = {
   id: string;
-  name: string;
-  domain: string | null;
-  verification_status: string;
+  email: string;
+  fullName: string | null;
+  role: "applicant" | "hirer" | "admin";
+  emailVerified: boolean;
 };
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
-const ADD_COMPANY_VALUE = "add-company";
 
 function App() {
   const [view, setView] = useState<View>("home");
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  useEffect(() => {
+    refreshCurrentUser()
+      .then(setCurrentUser)
+      .catch(() => setCurrentUser(null))
+      .finally(() => setAuthChecked(true));
+  }, []);
+
+  async function handleLogout() {
+    await apiRequest("/api/logout", { method: "POST" });
+    setCurrentUser(null);
+  }
 
   return (
     <div className="app-shell">
-      <Header view={view} onNavigate={setView} />
+      <Header view={view} currentUser={currentUser} onNavigate={setView} onLogout={handleLogout} />
+      {!authChecked && <div className="session-loading">Checking session...</div>}
       {view === "home" && <LandingPage onNavigate={setView} />}
-      {view === "applicant" && <ApplicantAuth />}
-      {view === "hirer" && <HirerAuth />}
+      {view === "applicant" && <ApplicantAuth currentUser={currentUser} onAuthenticated={setCurrentUser} />}
+      {view === "hirer" && <HirerAuth currentUser={currentUser} onAuthenticated={setCurrentUser} />}
     </div>
   );
 }
 
-function Header({ view, onNavigate }: { view: View; onNavigate: (view: View) => void }) {
+function Header({
+  view,
+  currentUser,
+  onNavigate,
+  onLogout,
+}: {
+  view: View;
+  currentUser: CurrentUser | null;
+  onNavigate: (view: View) => void;
+  onLogout: () => void;
+}) {
   return (
     <header className="site-header">
       <button className="brand" onClick={() => onNavigate("home")} aria-label="Go to Dinero home">
@@ -50,6 +75,14 @@ function Header({ view, onNavigate }: { view: View; onNavigate: (view: View) => 
           Hirers
         </button>
       </nav>
+      {currentUser && (
+        <div className="session-pill">
+          <span>{currentUser.email}</span>
+          <button onClick={onLogout} type="button">
+            Log out
+          </button>
+        </div>
+      )}
     </header>
   );
 }
@@ -148,7 +181,13 @@ function LandingPage({ onNavigate }: { onNavigate: (view: View) => void }) {
   );
 }
 
-function ApplicantAuth() {
+function ApplicantAuth({
+  currentUser,
+  onAuthenticated,
+}: {
+  currentUser: CurrentUser | null;
+  onAuthenticated: (user: CurrentUser) => void;
+}) {
   const [mode, setMode] = useState<AuthMode>("signin");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -178,6 +217,7 @@ function ApplicantAuth() {
           result.message ??
           (mode === "signin" ? "Signed in as applicant." : "Applicant account created. Check your email next."),
       });
+      onAuthenticated(result.user);
     } catch (error) {
       setNotice({ type: "error", text: getErrorMessage(error) });
     } finally {
@@ -193,6 +233,7 @@ function ApplicantAuth() {
       previewTitle="Applicant outcome loop"
       previewItems={["Resume PDF upload", "Interview chance by role", "Email verification after signup"]}
     >
+      {currentUser?.role === "applicant" && <SignedInPanel user={currentUser} />}
       <SegmentedControl mode={mode} setMode={setMode} />
       <form className="auth-form" onSubmit={handleSubmit}>
         {mode === "signup" && (
@@ -242,38 +283,21 @@ function ApplicantAuth() {
   );
 }
 
-function HirerAuth() {
+function HirerAuth({
+  currentUser,
+  onAuthenticated,
+}: {
+  currentUser: CurrentUser | null;
+  onAuthenticated: (user: CurrentUser) => void;
+}) {
   const [mode, setMode] = useState<AuthMode>("signin");
-  const [companies, setCompanies] = useState<CompanyOption[]>([]);
-  const [company, setCompany] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [notice, setNotice] = useState<Notice>(null);
   const [loading, setLoading] = useState(false);
-  const addingCompany = company === ADD_COMPANY_VALUE;
   const submitLabel = mode === "signin" ? "Sign in as hirer" : "Create hirer account";
-
-  useEffect(() => {
-    apiRequest("/api/companies")
-      .then((result) => {
-        setCompanies(result.companies ?? []);
-      })
-      .catch(() => {
-        setCompanies([]);
-      });
-  }, []);
-
-  const helperText = useMemo(() => {
-    if (mode === "signin") {
-      return "Choose the company connected to your hiring account.";
-    }
-    if (addingCompany) {
-      return "Dinero will check whether this is a real company, match it to the canonical company, and prevent duplicate company records.";
-    }
-    return "New hirer accounts require email verification before role management is enabled.";
-  }, [addingCompany, mode]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -290,8 +314,7 @@ function HirerAuth() {
                 email,
                 password,
                 fullName: fullName || undefined,
-                companyId: !addingCompany && company ? company : undefined,
-                companyName: addingCompany ? companyName : undefined,
+                companyName,
               },
       });
 
@@ -302,6 +325,7 @@ function HirerAuth() {
           (result.message ?? (mode === "signin" ? "Signed in as hirer." : "Hirer account created.")) +
           companyMessage,
       });
+      onAuthenticated(result.user);
     } catch (error) {
       setNotice({ type: "error", text: getErrorMessage(error) });
     } finally {
@@ -317,6 +341,7 @@ function HirerAuth() {
       previewTitle="Hirer feedback loop"
       previewItems={["Company role setup", "Prediction quality feedback", "Optional future bias scoring"]}
     >
+      {currentUser?.role === "hirer" && <SignedInPanel user={currentUser} />}
       <SegmentedControl mode={mode} setMode={setMode} />
       <form className="auth-form" onSubmit={handleSubmit}>
         {mode === "signup" && (
@@ -351,22 +376,7 @@ function HirerAuth() {
             required
           />
         </label>
-        <label>
-          Company
-          <select value={company} onChange={(event) => setCompany(event.target.value)} required={mode === "signup"}>
-            <option value="" disabled>
-              Select a company
-            </option>
-            {companies.map((companyOption) => (
-              <option key={companyOption.id} value={companyOption.id}>
-                {companyOption.name}
-                {companyOption.domain ? ` (${companyOption.domain})` : ""}
-              </option>
-            ))}
-            {mode === "signup" && <option value={ADD_COMPANY_VALUE}>Add a new company</option>}
-          </select>
-        </label>
-        {(mode === "signup" || addingCompany) && (
+        {mode === "signup" && (
           <label>
             Company name
             <input
@@ -374,12 +384,16 @@ function HirerAuth() {
               placeholder="Company legal or public name"
               value={companyName}
               onChange={(event) => setCompanyName(event.target.value)}
-              required={addingCompany}
-              disabled={!addingCompany}
+              required
             />
           </label>
         )}
-        <p className="form-note">{helperText}</p>
+        {mode === "signup" && (
+          <p className="form-note">
+            Dinero will save this company as pending verification. Once the Perplexity provider is configured, this
+            step will check the real company and prevent duplicates automatically.
+          </p>
+        )}
         {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
         <button className="primary-button full-width" type="submit" disabled={loading}>
           {loading ? "Working..." : submitLabel}
@@ -398,6 +412,16 @@ function SegmentedControl({ mode, setMode }: { mode: AuthMode; setMode: (mode: A
       <button className={mode === "signup" ? "selected" : ""} onClick={() => setMode("signup")} type="button">
         Sign up
       </button>
+    </div>
+  );
+}
+
+function SignedInPanel({ user }: { user: CurrentUser }) {
+  return (
+    <div className="signed-in-panel">
+      <strong>Signed in</strong>
+      <span>{user.email}</span>
+      {!user.emailVerified && <em>Email verification is still pending.</em>}
     </div>
   );
 }
@@ -450,6 +474,7 @@ async function apiRequest(path: string, options: { method?: string; body?: Recor
     method: options.method ?? "GET",
     headers: options.body ? { "Content-Type": "application/json" } : undefined,
     body: options.body ? JSON.stringify(options.body) : undefined,
+    credentials: "include",
   });
 
   const payload = await response.json().catch(() => ({}));
@@ -459,6 +484,19 @@ async function apiRequest(path: string, options: { method?: string; body?: Recor
   }
 
   return payload;
+}
+
+async function refreshCurrentUser() {
+  const response = await fetch(`${API_BASE_URL}/api/me`, {
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const payload = await response.json();
+  return payload.user as CurrentUser | null;
 }
 
 function getErrorMessage(error: unknown) {

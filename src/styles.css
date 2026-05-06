@@ -65,6 +65,14 @@ button {
   backdrop-filter: blur(18px);
 }
 
+.session-loading {
+  width: min(1180px, calc(100% - 40px));
+  margin: 0 auto;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 750;
+}
+
 .brand {
   display: inline-flex;
   align-items: center;
@@ -95,6 +103,38 @@ nav {
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--white);
+}
+
+.session-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--white);
+  padding: 4px 4px 4px 12px;
+}
+
+.session-pill span {
+  max-width: 220px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-pill button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--black);
+  color: var(--white);
+  padding: 0 12px;
+  font-size: 0.82rem;
+  font-weight: 850;
 }
 
 .nav-link {
@@ -421,6 +461,32 @@ h1 {
   padding: 26px;
 }
 
+.signed-in-panel {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 18px;
+  border: 1px solid rgba(22, 163, 74, 0.2);
+  border-radius: 8px;
+  background: var(--green-soft);
+  padding: 14px;
+}
+
+.signed-in-panel strong {
+  color: var(--green-dark);
+}
+
+.signed-in-panel span,
+.signed-in-panel em {
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
+.signed-in-panel em {
+  color: var(--green-dark);
+  font-style: normal;
+  font-weight: 750;
+}
+
 .segmented-control {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -544,6 +610,11 @@ h1 {
     align-items: flex-start;
     flex-direction: column;
     width: min(100% - 28px, 1180px);
+  }
+
+  .session-pill {
+    width: 100%;
+    justify-content: space-between;
   }
 
   nav {

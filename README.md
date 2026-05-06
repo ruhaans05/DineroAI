@@ -112,12 +112,14 @@ Implemented API routes:
 
 - `GET /api/health`
 - `GET /api/companies`
+- `GET /api/me`
 - `POST /api/applicants/signup`
 - `POST /api/hirers/signup`
 - `POST /api/signin`
+- `POST /api/logout`
 - `POST /api/verify-email`
 
-Email verification tokens are stored in the database. Actual email sending is intentionally not wired yet.
+Signup and signin create HTTP-only session cookies backed by the `user_sessions` table. Email verification tokens are stored in the database. Actual email sending is intentionally not wired yet.
 
 ## Company Verification
 
