@@ -127,7 +127,7 @@ Implemented API routes:
 - `POST /api/logout`
 - `POST /api/verify-email`
 
-Signup and signin create HTTP-only session cookies backed by the `user_sessions` table. Email verification tokens are stored in the database. Actual email sending is intentionally not wired yet.
+Signup creates an unverified account and a 30-minute email verification token. Users cannot sign in until they click the verification link. Signin creates an HTTP-only session cookie backed by the `user_sessions` table.
 
 Email verification uses Resend when configured:
 

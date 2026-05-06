@@ -6,6 +6,7 @@ import "./styles.css";
 type View = "home" | "applicant" | "hirer";
 type AuthMode = "signin" | "signup";
 type Notice = { type: "success" | "error"; text: string } | null;
+type AuthNotice = { view: "applicant" | "hirer"; notice: NonNullable<Notice> } | null;
 type CurrentUser = {
   id: string;
   email: string;
@@ -20,8 +21,44 @@ function App() {
   const [view, setView] = useState<View>("home");
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [authNotice, setAuthNotice] = useState<AuthNotice>(null);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const verifyToken = params.get("verifyToken");
+
+    if (verifyToken) {
+      verifyEmailFromLink(verifyToken)
+        .then((user) => {
+          const targetView = user?.role === "hirer" ? "hirer" : "applicant";
+          setCurrentUser(null);
+          setView(targetView);
+          setAuthNotice({
+            view: targetView,
+            notice: {
+              type: "success",
+              text: "Email confirmed. You can sign in now.",
+            },
+          });
+        })
+        .catch((error) => {
+          setCurrentUser(null);
+          setView("applicant");
+          setAuthNotice({
+            view: "applicant",
+            notice: {
+              type: "error",
+              text: getErrorMessage(error),
+            },
+          });
+        })
+        .finally(() => {
+          window.history.replaceState({}, "", window.location.pathname);
+          setAuthChecked(true);
+        });
+      return;
+    }
+
     refreshCurrentUser()
       .then(setCurrentUser)
       .catch(() => setCurrentUser(null))
@@ -38,8 +75,22 @@ function App() {
       <Header view={view} currentUser={currentUser} onNavigate={setView} onLogout={handleLogout} />
       {!authChecked && <div className="session-loading">Checking session...</div>}
       {view === "home" && <LandingPage onNavigate={setView} />}
-      {view === "applicant" && <ApplicantAuth currentUser={currentUser} onAuthenticated={setCurrentUser} />}
-      {view === "hirer" && <HirerAuth currentUser={currentUser} onAuthenticated={setCurrentUser} />}
+      {view === "applicant" && (
+        <ApplicantAuth
+          currentUser={currentUser}
+          initialNotice={authNotice?.view === "applicant" ? authNotice.notice : null}
+          onAuthenticated={setCurrentUser}
+          onNoticeConsumed={() => setAuthNotice(null)}
+        />
+      )}
+      {view === "hirer" && (
+        <HirerAuth
+          currentUser={currentUser}
+          initialNotice={authNotice?.view === "hirer" ? authNotice.notice : null}
+          onAuthenticated={setCurrentUser}
+          onNoticeConsumed={() => setAuthNotice(null)}
+        />
+      )}
     </div>
   );
 }
@@ -183,10 +234,14 @@ function LandingPage({ onNavigate }: { onNavigate: (view: View) => void }) {
 
 function ApplicantAuth({
   currentUser,
+  initialNotice,
   onAuthenticated,
+  onNoticeConsumed,
 }: {
   currentUser: CurrentUser | null;
+  initialNotice: Notice;
   onAuthenticated: (user: CurrentUser) => void;
+  onNoticeConsumed: () => void;
 }) {
   const [mode, setMode] = useState<AuthMode>("signin");
   const [fullName, setFullName] = useState("");
@@ -198,6 +253,14 @@ function ApplicantAuth({
   const [loading, setLoading] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const submitLabel = mode === "signin" ? "Sign in as applicant" : "Create applicant account";
+
+  useEffect(() => {
+    if (initialNotice) {
+      setMode("signin");
+      setNotice(initialNotice);
+      onNoticeConsumed();
+    }
+  }, [initialNotice, onNoticeConsumed]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -219,9 +282,17 @@ function ApplicantAuth({
         type: "success",
         text:
           result.message ??
-          (mode === "signin" ? "Signed in as applicant." : "Applicant account created. Check your email next."),
+          (mode === "signin"
+            ? "Signed in as applicant."
+            : "Applicant account created. Check your email to verify before signing in."),
       });
-      onAuthenticated(result.user);
+      if (mode === "signin") {
+        onAuthenticated(result.user);
+      } else {
+        setMode("signin");
+        setPassword("");
+        setConfirmPassword("");
+      }
     } catch (error) {
       setNotice({ type: "error", text: getErrorMessage(error) });
     } finally {
@@ -336,10 +407,14 @@ function ApplicantAuth({
 
 function HirerAuth({
   currentUser,
+  initialNotice,
   onAuthenticated,
+  onNoticeConsumed,
 }: {
   currentUser: CurrentUser | null;
+  initialNotice: Notice;
   onAuthenticated: (user: CurrentUser) => void;
+  onNoticeConsumed: () => void;
 }) {
   const [mode, setMode] = useState<AuthMode>("signin");
   const [companyName, setCompanyName] = useState("");
@@ -352,6 +427,14 @@ function HirerAuth({
   const [loading, setLoading] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const submitLabel = mode === "signin" ? "Sign in as hirer" : "Create hirer account";
+
+  useEffect(() => {
+    if (initialNotice) {
+      setMode("signin");
+      setNotice(initialNotice);
+      onNoticeConsumed();
+    }
+  }, [initialNotice, onNoticeConsumed]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -380,7 +463,13 @@ function HirerAuth({
           (result.message ?? (mode === "signin" ? "Signed in as hirer." : "Hirer account created.")) +
           companyMessage,
       });
-      onAuthenticated(result.user);
+      if (mode === "signin") {
+        onAuthenticated(result.user);
+      } else {
+        setMode("signin");
+        setPassword("");
+        setConfirmPassword("");
+      }
     } catch (error) {
       setNotice({ type: "error", text: getErrorMessage(error) });
     } finally {
@@ -661,6 +750,15 @@ async function refreshCurrentUser() {
 
   const payload = await response.json();
   return payload.user as CurrentUser | null;
+}
+
+async function verifyEmailFromLink(token: string) {
+  const result = await apiRequest("/api/verify-email", {
+    method: "POST",
+    body: { token },
+  });
+
+  return result.user as CurrentUser | null;
 }
 
 function getErrorMessage(error: unknown) {
