@@ -134,9 +134,10 @@ Email verification uses Resend when configured:
 ```bash
 RESEND_API_KEY=your_resend_key
 EMAIL_FROM=Dinero <onboarding@resend.dev>
+EMAIL_REPLY_TO=dinerobusinessofficial@gmail.com
 ```
 
-Without `RESEND_API_KEY`, Dinero logs the verification link in the API console for local development.
+Without `RESEND_API_KEY`, Dinero logs the verification link in the API console for local development. `EMAIL_FROM` must be a sender Resend allows; `EMAIL_REPLY_TO` can point replies to a Gmail inbox.
 
 ## Company Verification
 
