@@ -61,20 +61,36 @@ Dinero is designed to become a resume-to-role matching layer that:
 - AI/NLP: Resume parsing, job description extraction, match scoring, and feedback generation.
 - Analytics/modeling: Opt-in outcome data used to calibrate interview probability over time.
 
-## Local Database
+## Database
 
 Dinero uses PostgreSQL for user accounts, applicant profiles, company accounts, resumes, job listings, match scores, resume suggestions, applicant outcomes, hiring-team feedback, and future opt-in bias assessments.
 
-To start the local database:
+For Supabase, add the Supabase Postgres connection string to `.env.local`:
 
 ```bash
-cp .env.example .env
-npm run db:up
+DATABASE_URL=postgresql://postgres.[project-ref]:[password]@[pooler-host]:5432/postgres?sslmode=verify-full
+```
+
+Use the Supabase dashboard's **Connect** button and copy the **Session pooler** connection string. It supports IPv4 and is the best default for local development. The direct string that starts with `db.[project-ref].supabase.co` can fail on networks or hosts that do not support Supabase's direct IPv6 route.
+
+Then run:
+
+```bash
+npm run db:check
 npm run db:migrate
 npm run db:seed
 ```
 
-Useful commands:
+Do not commit `.env.local`. It is ignored by git.
+
+Docker is now only an optional local fallback. To use local Docker Postgres instead of Supabase:
+
+```bash
+npm run db:up
+npm run db:migrate
+```
+
+Useful Docker-only commands:
 
 ```bash
 npm run db:shell
@@ -82,21 +98,13 @@ npm run db:logs
 npm run db:down
 ```
 
-The default local connection string is:
-
-```text
-postgresql://dinero:dinero_dev_password@localhost:5432/dinero
-```
-
 ## Local API
 
 The signup flow is backed by a local Express API connected to PostgreSQL.
 
-Start the database, apply migrations, then start the API:
+After `DATABASE_URL` is set and migrations are applied, start the API:
 
 ```bash
-npm run db:up
-npm run db:migrate
 npm run api:dev
 ```
 

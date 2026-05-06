@@ -517,6 +517,12 @@ h1 {
   gap: 16px;
 }
 
+.verification-form {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+
 .auth-form label {
   display: grid;
   gap: 8px;
@@ -558,6 +564,48 @@ h1 {
   font-size: 0.9rem;
   font-weight: 750;
   line-height: 1.45;
+}
+
+.password-rules {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.password-rules li {
+  position: relative;
+  padding-left: 24px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.password-rules li::before {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--white);
+  content: "";
+  font-size: 0.64rem;
+  font-weight: 900;
+}
+
+.password-rules li.passed {
+  color: var(--green-dark);
+}
+
+.password-rules li.passed::before {
+  border-color: var(--green);
+  background: var(--green);
+  content: "$";
 }
 
 .form-message {

@@ -192,8 +192,11 @@ function ApplicantAuth({
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [verificationToken, setVerificationToken] = useState("");
   const [notice, setNotice] = useState<Notice>(null);
   const [loading, setLoading] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const submitLabel = mode === "signin" ? "Sign in as applicant" : "Create applicant account";
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -202,6 +205,7 @@ function ApplicantAuth({
     setNotice(null);
 
     try {
+      validateSignupPassword(mode, password, confirmPassword);
       const result = await apiRequest(mode === "signin" ? "/api/signin" : "/api/applicants/signup", {
         method: "POST",
         body: {
@@ -222,6 +226,28 @@ function ApplicantAuth({
       setNotice({ type: "error", text: getErrorMessage(error) });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleVerifyEmail(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setVerifying(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest("/api/verify-email", {
+        method: "POST",
+        body: { token: verificationToken },
+      });
+      setNotice({ type: "success", text: result.message ?? "Email verified." });
+      if (result.user) {
+        onAuthenticated(result.user);
+      }
+      setVerificationToken("");
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setVerifying(false);
     }
   }
 
@@ -269,9 +295,25 @@ function ApplicantAuth({
           />
         </label>
         {mode === "signup" && (
+          <>
+            <label>
+              Confirm password
+              <input
+                type="password"
+                placeholder="Type your password again"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                minLength={8}
+                required
+              />
+            </label>
+            <PasswordRequirements password={password} />
+          </>
+        )}
+        {mode === "signup" && (
           <p className="form-note">
-            After signup, Dinero will ask you to verify your email. Role focus will be inferred later from your resume
-            and target jobs.
+            After signup, Dinero will send a verification link. Role focus will be inferred later from your resume and
+            target jobs.
           </p>
         )}
         {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
@@ -279,6 +321,14 @@ function ApplicantAuth({
           {loading ? "Working..." : submitLabel}
         </button>
       </form>
+      {currentUser?.role === "applicant" && !currentUser.emailVerified && (
+        <EmailVerificationForm
+          token={verificationToken}
+          loading={verifying}
+          onTokenChange={setVerificationToken}
+          onSubmit={handleVerifyEmail}
+        />
+      )}
     </AuthLayout>
   );
 }
@@ -295,8 +345,11 @@ function HirerAuth({
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [verificationToken, setVerificationToken] = useState("");
   const [notice, setNotice] = useState<Notice>(null);
   const [loading, setLoading] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const submitLabel = mode === "signin" ? "Sign in as hirer" : "Create hirer account";
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -305,6 +358,7 @@ function HirerAuth({
     setNotice(null);
 
     try {
+      validateSignupPassword(mode, password, confirmPassword);
       const result = await apiRequest(mode === "signin" ? "/api/signin" : "/api/hirers/signup", {
         method: "POST",
         body:
@@ -330,6 +384,28 @@ function HirerAuth({
       setNotice({ type: "error", text: getErrorMessage(error) });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleVerifyEmail(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setVerifying(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest("/api/verify-email", {
+        method: "POST",
+        body: { token: verificationToken },
+      });
+      setNotice({ type: "success", text: result.message ?? "Email verified." });
+      if (result.user) {
+        onAuthenticated(result.user);
+      }
+      setVerificationToken("");
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setVerifying(false);
     }
   }
 
@@ -377,6 +453,22 @@ function HirerAuth({
           />
         </label>
         {mode === "signup" && (
+          <>
+            <label>
+              Confirm password
+              <input
+                type="password"
+                placeholder="Type your password again"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                minLength={8}
+                required
+              />
+            </label>
+            <PasswordRequirements password={password} />
+          </>
+        )}
+        {mode === "signup" && (
           <label>
             Company name
             <input
@@ -399,6 +491,14 @@ function HirerAuth({
           {loading ? "Working..." : submitLabel}
         </button>
       </form>
+      {currentUser?.role === "hirer" && !currentUser.emailVerified && (
+        <EmailVerificationForm
+          token={verificationToken}
+          loading={verifying}
+          onTokenChange={setVerificationToken}
+          onSubmit={handleVerifyEmail}
+        />
+      )}
     </AuthLayout>
   );
 }
@@ -423,6 +523,54 @@ function SignedInPanel({ user }: { user: CurrentUser }) {
       <span>{user.email}</span>
       {!user.emailVerified && <em>Email verification is still pending.</em>}
     </div>
+  );
+}
+
+function PasswordRequirements({ password }: { password: string }) {
+  const requirements = [
+    ["At least 8 characters", password.length >= 8],
+    ["At least 1 number", /\d/.test(password)],
+    ["At least 1 special character", /[^A-Za-z0-9]/.test(password)],
+  ] as const;
+
+  return (
+    <ul className="password-rules" aria-label="Password requirements">
+      {requirements.map(([label, passed]) => (
+        <li className={passed ? "passed" : ""} key={label}>
+          {label}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function EmailVerificationForm({
+  token,
+  loading,
+  onTokenChange,
+  onSubmit,
+}: {
+  token: string;
+  loading: boolean;
+  onTokenChange: (token: string) => void;
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <form className="auth-form verification-form" onSubmit={onSubmit}>
+      <label>
+        Verification token
+        <input
+          type="text"
+          placeholder="Paste the token from your email"
+          value={token}
+          onChange={(event) => onTokenChange(event.target.value)}
+          required
+        />
+      </label>
+      <button className="secondary-button full-width" disabled={loading} type="submit">
+        {loading ? "Verifying..." : "Verify email"}
+      </button>
+    </form>
   );
 }
 
@@ -501,4 +649,26 @@ async function refreshCurrentUser() {
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong.";
+}
+
+function validateSignupPassword(mode: AuthMode, password: string, confirmPassword: string) {
+  if (mode !== "signup") {
+    return;
+  }
+
+  if (password !== confirmPassword) {
+    throw new Error("Passwords do not match.");
+  }
+
+  if (password.length < 8) {
+    throw new Error("Password must be at least 8 characters.");
+  }
+
+  if (!/\d/.test(password)) {
+    throw new Error("Password must include at least one number.");
+  }
+
+  if (!/[^A-Za-z0-9]/.test(password)) {
+    throw new Error("Password must include at least one special character.");
+  }
 }

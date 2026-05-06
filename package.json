@@ -12,8 +12,11 @@
     "db:up": "scripts/db-up.sh",
     "db:down": "scripts/db-down.sh",
     "db:logs": "scripts/db-logs.sh",
-    "db:migrate": "scripts/db-migrate.sh",
-    "db:seed": "scripts/db-seed.sh",
+    "db:migrate": "tsx scripts/run-sql-directory.ts db/migrations",
+    "db:seed": "tsx scripts/run-sql-directory.ts db/seeds",
+    "db:check": "tsx scripts/db-check.ts",
+    "db:migrate:docker": "scripts/db-migrate.sh",
+    "db:seed:docker": "scripts/db-seed.sh",
     "db:shell": "scripts/db-shell.sh"
   },
   "dependencies": {
