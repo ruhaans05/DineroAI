@@ -61,6 +61,33 @@ Dinero is designed to become a resume-to-role matching layer that:
 - AI/NLP: Resume parsing, job description extraction, match scoring, and feedback generation.
 - Analytics/modeling: Opt-in outcome data used to calibrate interview probability over time.
 
+## Local Database
+
+Dinero uses PostgreSQL for user accounts, applicant profiles, company accounts, resumes, job listings, match scores, resume suggestions, applicant outcomes, hiring-team feedback, and future opt-in bias assessments.
+
+To start the local database:
+
+```bash
+cp .env.example .env
+npm run db:up
+npm run db:migrate
+npm run db:seed
+```
+
+Useful commands:
+
+```bash
+npm run db:shell
+npm run db:logs
+npm run db:down
+```
+
+The default local connection string is:
+
+```text
+postgresql://dinero:dinero_dev_password@localhost:5432/dinero
+```
+
 ## Data Model Draft
 
 Core tables:

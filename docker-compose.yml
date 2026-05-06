@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dinero-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dinero}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dinero_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-dinero}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - dinero_postgres_data:/var/lib/postgresql/data
+      - ./db:/database:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dinero} -d ${POSTGRES_DB:-dinero}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  dinero_postgres_data:
