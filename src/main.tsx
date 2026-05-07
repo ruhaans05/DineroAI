@@ -101,6 +101,13 @@ type ResumeMatchScan = {
   recommendations: string[];
   resumeSha256: string;
 };
+type CompanySuggestion = {
+  name: string;
+  domain: string | null;
+  websiteUrl: string | null;
+  confidence: number;
+  reason: string;
+};
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 const OUTREACH_FALLBACK_STARTER = "Hi, I'm excited about this role and believe my background";
@@ -1219,6 +1226,7 @@ function ForumPanel({ currentUser }: { currentUser: CurrentUser }) {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editSubject, setEditSubject] = useState("");
   const [editBody, setEditBody] = useState("");
@@ -1255,7 +1263,10 @@ function ForumPanel({ currentUser }: { currentUser: CurrentUser }) {
       setSubject("");
       setBody("");
       setNotice({ type: "success", text: "Post created." });
-      await loadPosts();
+      const result = await apiRequest("/api/forum/posts");
+      const nextPosts = result.posts ?? [];
+      setPosts(nextPosts);
+      setSelectedPostId(nextPosts[0]?.id ?? null);
     } catch (error) {
       setNotice({ type: "error", text: getErrorMessage(error) });
     } finally {
@@ -1294,6 +1305,7 @@ function ForumPanel({ currentUser }: { currentUser: CurrentUser }) {
   }
 
   function startEditing(post: ForumPost) {
+    setSelectedPostId(post.id);
     setEditingPostId(post.id);
     setEditSubject(post.subject);
     setEditBody(post.body);
@@ -1330,10 +1342,135 @@ function ForumPanel({ currentUser }: { currentUser: CurrentUser }) {
         method: "DELETE",
       });
       setNotice({ type: "success", text: "Post deleted." });
+      setSelectedPostId(null);
       await loadPosts();
     } catch (error) {
       setNotice({ type: "error", text: getErrorMessage(error) });
     }
+  }
+
+  const selectedPost = posts.find((post) => post.id === selectedPostId) ?? null;
+
+  if (selectedPost) {
+    const similarPosts = getSimilarForumPosts(selectedPost, posts);
+
+    return (
+      <section className="forum-thread-page">
+        <button
+          className="thread-back-button"
+          type="button"
+          onClick={() => {
+            setSelectedPostId(null);
+            cancelEditing();
+          }}
+        >
+          Back to forum
+        </button>
+
+        <div className="forum-thread-layout">
+          <article className={selectedPost.isResolved ? "forum-post thread-post resolved" : "forum-post thread-post"}>
+            <div className="forum-post-header">
+              <div>
+                <span>{selectedPost.authorName}</span>
+                <time>
+                  {formatDate(selectedPost.createdAt)}
+                  {selectedPost.editedAt && <em> (edited)</em>}
+                </time>
+              </div>
+              {selectedPost.authorUserId === currentUser.id ? (
+                <div className="post-actions">
+                  <button className="resolved-toggle" type="button" onClick={() => handleResolved(selectedPost)}>
+                    {selectedPost.isResolved ? "Resolved" : "Mark resolved"}
+                  </button>
+                  <button className="mini-action" type="button" onClick={() => startEditing(selectedPost)}>
+                    Edit
+                  </button>
+                  <button className="mini-action danger" type="button" onClick={() => handleDeletePost(selectedPost)}>
+                    Delete
+                  </button>
+                </div>
+              ) : (
+                selectedPost.isResolved && <span className="resolved-badge">Resolved</span>
+              )}
+            </div>
+
+            {editingPostId === selectedPost.id ? (
+              <form className="auth-form edit-post-form" onSubmit={(event) => event.preventDefault()}>
+                <label>
+                  Subject
+                  <input
+                    value={editSubject}
+                    onChange={(event) => setEditSubject(event.target.value)}
+                    minLength={4}
+                    maxLength={160}
+                    required
+                  />
+                </label>
+                <label>
+                  Post
+                  <textarea
+                    value={editBody}
+                    onChange={(event) => setEditBody(event.target.value)}
+                    minLength={10}
+                    maxLength={4000}
+                    required
+                  />
+                </label>
+                <div className="edit-actions">
+                  <button className="primary-button" type="button" onClick={() => handleEditPost(selectedPost.id)}>
+                    Save edit
+                  </button>
+                  <button className="secondary-button" type="button" onClick={cancelEditing}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <>
+                <h2>{selectedPost.subject}</h2>
+                <p>{selectedPost.body}</p>
+              </>
+            )}
+
+            <div className="comments-list">
+              {selectedPost.comments.map((comment) => (
+                <div className="comment" key={comment.id}>
+                  <div>
+                    <strong>{comment.authorName}</strong>
+                    <time>{formatDate(comment.createdAt)}</time>
+                  </div>
+                  <p>{comment.body}</p>
+                </div>
+              ))}
+            </div>
+            <div className="comment-box">
+              <input
+                value={commentDrafts[selectedPost.id] ?? ""}
+                onChange={(event) => setCommentDrafts((drafts) => ({ ...drafts, [selectedPost.id]: event.target.value }))}
+                placeholder="Reply to this post"
+              />
+              <button className="secondary-button" type="button" onClick={() => handleComment(selectedPost.id)}>
+                Reply
+              </button>
+            </div>
+          </article>
+
+          <aside className="similar-posts-panel">
+            <span className="card-label">Similar posts</span>
+            {similarPosts.length === 0 && <p>No similar posts yet.</p>}
+            {similarPosts.map((post) => (
+              <button className="similar-post" type="button" key={post.id} onClick={() => setSelectedPostId(post.id)}>
+                <strong>{post.subject}</strong>
+                <span>{truncateText(post.body, 90)}</span>
+                <em>
+                  {post.comments.length} {post.comments.length === 1 ? "reply" : "replies"}
+                </em>
+              </button>
+            ))}
+          </aside>
+        </div>
+      </section>
+    );
   }
 
   return (
@@ -1387,64 +1524,18 @@ function ForumPanel({ currentUser }: { currentUser: CurrentUser }) {
               )}
               {post.authorUserId !== currentUser.id && post.isResolved && <span className="resolved-badge">Resolved</span>}
             </div>
-            {editingPostId === post.id ? (
-              <form className="auth-form edit-post-form" onSubmit={(event) => event.preventDefault()}>
-                <label>
-                  Subject
-                  <input
-                    value={editSubject}
-                    onChange={(event) => setEditSubject(event.target.value)}
-                    minLength={4}
-                    maxLength={160}
-                    required
-                  />
-                </label>
-                <label>
-                  Post
-                  <textarea
-                    value={editBody}
-                    onChange={(event) => setEditBody(event.target.value)}
-                    minLength={10}
-                    maxLength={4000}
-                    required
-                  />
-                </label>
-                <div className="edit-actions">
-                  <button className="primary-button" type="button" onClick={() => handleEditPost(post.id)}>
-                    Save edit
-                  </button>
-                  <button className="secondary-button" type="button" onClick={cancelEditing}>
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <>
-                <h3>{post.subject}</h3>
-                <p>{post.body}</p>
-              </>
-            )}
-            <div className="comments-list">
-              {post.comments.map((comment) => (
-                <div className="comment" key={comment.id}>
-                  <div>
-                    <strong>{comment.authorName}</strong>
-                    <time>{formatDate(comment.createdAt)}</time>
-                  </div>
-                  <p>{comment.body}</p>
-                </div>
-              ))}
-            </div>
-            <div className="comment-box">
-              <input
-                value={commentDrafts[post.id] ?? ""}
-                onChange={(event) => setCommentDrafts((drafts) => ({ ...drafts, [post.id]: event.target.value }))}
-                placeholder="Reply to this post"
-              />
-              <button className="secondary-button" type="button" onClick={() => handleComment(post.id)}>
-                Reply
-              </button>
-            </div>
+            <button
+              className="forum-post-preview"
+              type="button"
+              onClick={() => setSelectedPostId(post.id)}
+            >
+              <strong>{post.subject}</strong>
+              <span>{truncateText(post.body, 170)}</span>
+              <em>
+                {post.comments.length} {post.comments.length === 1 ? "reply" : "replies"}
+                {" · Open"}
+              </em>
+            </button>
           </article>
         ))}
       </div>
@@ -2095,6 +2186,9 @@ function HirerAuth({
 }) {
   const [mode, setMode] = useState<AuthMode>("signin");
   const [companyName, setCompanyName] = useState("");
+  const [companyVerificationEmail, setCompanyVerificationEmail] = useState("");
+  const [companySuggestions, setCompanySuggestions] = useState<CompanySuggestion[]>([]);
+  const [companyLookupMessage, setCompanyLookupMessage] = useState("");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -2102,6 +2196,7 @@ function HirerAuth({
   const [verificationToken, setVerificationToken] = useState("");
   const [notice, setNotice] = useState<Notice>(null);
   const [loading, setLoading] = useState(false);
+  const [checkingCompany, setCheckingCompany] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [resending, setResending] = useState(false);
   const submitLabel = mode === "signin" ? "Sign in as hirer" : "Create hirer account";
@@ -2114,13 +2209,65 @@ function HirerAuth({
     }
   }, [initialNotice, onNoticeConsumed]);
 
+  async function handleCompanyLookup() {
+    if (!companyName || !email) {
+      setNotice({ type: "error", text: "Enter a work email and company name before checking the company." });
+      return;
+    }
+
+    setCheckingCompany(true);
+    setNotice(null);
+    setCompanyLookupMessage("");
+    setCompanySuggestions([]);
+
+    try {
+      const result = await apiRequest("/api/companies/suggest", {
+        method: "POST",
+        body: { companyName, email },
+      });
+      setCompanySuggestions(result.suggestions ?? []);
+      setCompanyLookupMessage(result.message ?? "Company lookup finished.");
+      if ((result.suggestions ?? []).length === 0) {
+        setNotice({
+          type: "success",
+          text: "No confident existing company match found. You can create it and verify with a business email.",
+        });
+      }
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setCheckingCompany(false);
+    }
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    await submitAuth(false);
+  }
+
+  async function submitAuth(confirmSuspiciousCompanyEmail: boolean) {
     setLoading(true);
     setNotice(null);
 
     try {
       validateSignupPassword(mode, password, confirmPassword);
+      const normalizedCompanyEmail = (companyVerificationEmail || email).trim().toLowerCase();
+      const normalizedHirerEmail = email.trim().toLowerCase();
+      const shouldConfirmSameEmail =
+        mode === "signup" && normalizedCompanyEmail === normalizedHirerEmail && !confirmSuspiciousCompanyEmail;
+
+      if (shouldConfirmSameEmail) {
+        const confirmed = window.confirm(
+          "Using the same email for your hirer account and company verification can look suspicious. Continue anyway?",
+        );
+        if (!confirmed) {
+          setLoading(false);
+          return;
+        }
+        await submitAuth(true);
+        return;
+      }
+
       const result = await apiRequest(mode === "signin" ? "/api/signin" : "/api/hirers/signup", {
         method: "POST",
         body:
@@ -2131,6 +2278,8 @@ function HirerAuth({
                 password,
                 fullName: fullName || undefined,
                 companyName,
+                companyVerificationEmail: companyVerificationEmail || email,
+                confirmSuspiciousCompanyEmail,
               },
       });
 
@@ -2265,16 +2414,61 @@ function HirerAuth({
               type="text"
               placeholder="Company legal or public name"
               value={companyName}
-              onChange={(event) => setCompanyName(event.target.value)}
+              onChange={(event) => {
+                setCompanyName(event.target.value);
+                setCompanySuggestions([]);
+                setCompanyLookupMessage("");
+              }}
               required
             />
           </label>
         )}
         {mode === "signup" && (
-          <p className="form-note">
-            Dinero will save this company as pending verification. Once the Perplexity provider is configured, this
-            step will check the real company and prevent duplicates automatically.
-          </p>
+          <>
+            <button className="secondary-button full-width" type="button" disabled={checkingCompany || !companyName || !email} onClick={handleCompanyLookup}>
+              {checkingCompany ? "Checking company..." : "Check company with AI"}
+            </button>
+            {companyLookupMessage && <p className="form-note">{companyLookupMessage}</p>}
+            {companySuggestions.length > 0 && (
+              <div className="company-suggestion-list">
+                {companySuggestions.map((suggestion) => (
+                  <div className="company-suggestion" key={`${suggestion.name}-${suggestion.domain ?? "unknown"}`}>
+                    <strong>{suggestion.name}</strong>
+                    {suggestion.websiteUrl ? (
+                      <a href={suggestion.websiteUrl} target="_blank" rel="noreferrer">
+                        {suggestion.domain ?? suggestion.websiteUrl}
+                      </a>
+                    ) : (
+                      suggestion.domain && <span>{suggestion.domain}</span>
+                    )}
+                    <small>{suggestion.reason}</small>
+                    <button
+                      className="mini-action"
+                      type="button"
+                      onClick={() => {
+                        setCompanyName(suggestion.name);
+                        setCompanyLookupMessage(`Selected ${suggestion.name}. Verify with a business email for this company.`);
+                      }}
+                    >
+                      Select company
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <label>
+              Company verification email
+              <input
+                type="email"
+                placeholder="name@company.com"
+                value={companyVerificationEmail}
+                onChange={(event) => setCompanyVerificationEmail(event.target.value)}
+              />
+            </label>
+            <p className="form-note">
+              If no match is found, Dinero will create the company as pending and verify it with this business email.
+            </p>
+          </>
         )}
         {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
         <button className="primary-button full-width" type="submit" disabled={loading}>
@@ -2477,6 +2671,68 @@ function formatDate(value: string) {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function truncateText(value: string, maxLength: number) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 1).trim()}...`;
+}
+
+function getSimilarForumPosts(selectedPost: ForumPost, posts: ForumPost[]) {
+  const selectedKeywords = forumKeywords(`${selectedPost.subject} ${selectedPost.body}`);
+
+  return posts
+    .filter((post) => post.id !== selectedPost.id)
+    .map((post) => {
+      const keywords = forumKeywords(`${post.subject} ${post.body}`);
+      const score = keywords.filter((keyword) => selectedKeywords.includes(keyword)).length;
+      return { post, score };
+    })
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score || new Date(b.post.createdAt).getTime() - new Date(a.post.createdAt).getTime())
+    .slice(0, 5)
+    .map(({ post }) => post);
+}
+
+function forumKeywords(value: string) {
+  const ignored = new Set([
+    "about",
+    "after",
+    "again",
+    "also",
+    "and",
+    "any",
+    "are",
+    "for",
+    "from",
+    "have",
+    "help",
+    "how",
+    "into",
+    "job",
+    "jobs",
+    "like",
+    "that",
+    "the",
+    "this",
+    "with",
+    "you",
+    "your",
+  ]);
+
+  return Array.from(
+    new Set(
+      value
+        .toLowerCase()
+        .replace(/[^a-z0-9\s+#.]/g, " ")
+        .split(/\s+/)
+        .filter((word) => word.length > 2 && !ignored.has(word)),
+    ),
+  ).slice(0, 30);
 }
 
 function formatFileSize(bytes: number) {

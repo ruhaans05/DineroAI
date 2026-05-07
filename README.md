@@ -120,6 +120,7 @@ Implemented API routes:
 
 - `GET /api/health`
 - `GET /api/companies`
+- `POST /api/companies/suggest`
 - `GET /api/me`
 - `POST /api/applicants/signup`
 - `POST /api/hirers/signup`
