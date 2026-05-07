@@ -999,13 +999,15 @@ progress::-moz-progress-bar {
 }
 
 .fit-check.good_fit,
-.fit-check.qualification-yes {
+.fit-check.qualification-yes,
+.fit-check.keyword-score {
   border-color: rgba(22, 163, 74, 0.26);
   background: var(--green-soft);
 }
 
 .fit-check.good_fit strong,
-.fit-check.qualification-yes strong {
+.fit-check.qualification-yes strong,
+.fit-check.keyword-score strong {
   color: var(--green-dark);
 }
 

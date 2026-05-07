@@ -81,10 +81,14 @@ type ResumeMatchScan = {
   resumeFileName: string;
   jobPostId: string | null;
   jobTitle: string | null;
+  jobDescriptionUrl: string | null;
+  recruiterEmail: string | null;
+  recruiterOutreachStarter: string | null;
   provider: string;
   modelVersion: string;
   status: "needs_job_description" | "scored";
   interviewProbability: number | null;
+  keywordMatchScore: number | null;
   confidence: number;
   roleLevelFit: "too_high" | "good_fit" | "too_low" | "unclear";
   qualificationsMet: "yes" | "no" | "unclear";
@@ -764,6 +768,7 @@ function ResumeUploadPanel() {
           {scanning ? "Scanning..." : "Run scan"}
         </button>
         {scanning && <ScanLoadingBar progress={scanProgress} phase={scanPhase} />}
+        {scan?.recruiterEmail && <RecruiterOutreachComposer scan={scan} />}
       </article>
 
       <article className="portal-card scan-card">
@@ -821,9 +826,13 @@ function ResumeScanResult({ scan }: { scan: ResumeMatchScan }) {
       <div className="scan-overview">
         <div className="score-ring">
           <span>{scan.interviewProbability === null ? "--" : `${Math.round(scan.interviewProbability)}%`}</span>
-          <strong>{scan.status === "scored" ? "Keyword match" : "Needs job description"}</strong>
+          <strong>{scan.status === "scored" ? "Interview chance" : "Needs job description"}</strong>
         </div>
         <div className="fit-checks">
+          <div className="fit-check keyword-score">
+            <span>Keyword match</span>
+            <strong>{scan.keywordMatchScore === null ? "Unclear" : `${Math.round(scan.keywordMatchScore)}%`}</strong>
+          </div>
           <div className={`fit-check ${scan.roleLevelFit}`}>
             <span>Role level</span>
             <strong>{formatRoleLevelFit(scan.roleLevelFit)}</strong>
@@ -837,7 +846,7 @@ function ResumeScanResult({ scan }: { scan: ResumeMatchScan }) {
       <p>{scan.summary}</p>
       <div className="qualification-summary">
         <strong>Minimum requirements</strong>
-        <span>{scan.qualificationSummary}</span>
+        <span>{scan.missingQualifications.length === 0 && scan.qualificationsMet === "yes" ? "All met" : "No"}</span>
       </div>
       <div className="scan-meta">
         {scan.jobTitle && <span>{scan.jobTitle}</span>}
@@ -847,8 +856,90 @@ function ResumeScanResult({ scan }: { scan: ResumeMatchScan }) {
       </div>
       <SignalList title="Matched keywords" items={scan.matchedSignals} empty="No role-specific matches yet." />
       <SignalList title="Missing keywords" items={scan.missingSignals} empty="No missing keywords reported." />
-      <SignalList title="Missing qualifications" items={scan.missingQualifications} empty="No missing minimum qualifications reported." />
+      {scan.missingQualifications.length > 0 && (
+        <SignalList title="Missing qualifications" items={scan.missingQualifications} empty="No missing minimum qualifications reported." />
+      )}
       <SignalList title="Recommendations" items={scan.recommendations} empty="No recommendations yet." />
+    </div>
+  );
+}
+
+function RecruiterOutreachComposer({ scan }: { scan: ResumeMatchScan }) {
+  const [message, setMessage] = useState("");
+  const [notice, setNotice] = useState<Notice>(null);
+  const [drafting, setDrafting] = useState(true);
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    const words = (scan.recruiterOutreachStarter || OUTREACH_FALLBACK_STARTER).split(/\s+/).filter(Boolean).slice(0, 10);
+    let nextWordCount = 0;
+    setMessage("");
+    setNotice(null);
+    setDrafting(true);
+
+    const interval = window.setInterval(() => {
+      nextWordCount += 1;
+      setMessage(words.slice(0, nextWordCount).join(" "));
+
+      if (nextWordCount >= words.length) {
+        window.clearInterval(interval);
+        setDrafting(false);
+      }
+    }, 120);
+
+    return () => window.clearInterval(interval);
+  }, [scan.id, scan.recruiterOutreachStarter]);
+
+  async function handleSendRecruiterMessage() {
+    if (hasBlockedOutreachLanguage(message)) {
+      setNotice({ type: "error", text: "Please revise the message before sending. It includes blocked language." });
+      return;
+    }
+
+    if (message.trim().length < 20) {
+      setNotice({ type: "error", text: "Finish the draft with a little more detail before sending." });
+      return;
+    }
+
+    setSending(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest(`/api/resume-match/scans/${scan.id}/recruiter-outreach`, {
+        method: "POST",
+        body: { message },
+      });
+      setNotice({ type: "success", text: result.message ?? "Message sent to the recruiter." });
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="outreach-card recruiter-outreach-card">
+      <div className="outreach-header">
+        <div>
+          <span className="card-label">Recruiter detected</span>
+          <h3>Draft a message to {scan.recruiterEmail}.</h3>
+        </div>
+        <span className="ai-pill">{drafting ? "AI drafting" : "AI starter"}</span>
+      </div>
+      <textarea
+        value={message}
+        onChange={(event) => {
+          setMessage(event.target.value);
+          if (notice?.type === "error") {
+            setNotice(null);
+          }
+        }}
+        placeholder="Finish your message to the recruiter..."
+      />
+      {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+      <button className="primary-button full-width" type="button" onClick={handleSendRecruiterMessage} disabled={sending}>
+        {sending ? "Sending..." : "Send to recruiter"}
+      </button>
     </div>
   );
 }
