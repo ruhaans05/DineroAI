@@ -75,8 +75,31 @@ type JobPost = {
     contactEmail: string | null;
   };
 };
+type ResumeMatchScan = {
+  id: string;
+  createdAt: string;
+  resumeFileName: string;
+  jobPostId: string | null;
+  jobTitle: string | null;
+  provider: string;
+  modelVersion: string;
+  status: "needs_job_description" | "scored";
+  interviewProbability: number | null;
+  confidence: number;
+  roleLevelFit: "too_high" | "good_fit" | "too_low" | "unclear";
+  qualificationsMet: "yes" | "no" | "unclear";
+  qualificationSummary: string;
+  missingQualifications: string[];
+  summary: string;
+  matchedSignals: string[];
+  missingSignals: string[];
+  recommendations: string[];
+  resumeSha256: string;
+};
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+const OUTREACH_FALLBACK_STARTER = "Hi, I'm excited about this role and believe my background";
+const blockedOutreachLanguage = [/fuck/i, /shit/i, /bitch/i, /asshole/i, /kill/i, /hate/i];
 
 function App() {
   const [view, setView] = useState<View>("home");
@@ -590,7 +613,51 @@ function ApplicantPortal({
 
 function ResumeUploadPanel() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [jobs, setJobs] = useState<JobPost[]>([]);
+  const [selectedJobId, setSelectedJobId] = useState("");
+  const [jobDescription, setJobDescription] = useState("");
+  const [scan, setScan] = useState<ResumeMatchScan | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
+  const [jobsLoading, setJobsLoading] = useState(true);
+  const [scanning, setScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState(0);
+  const [scanPhase, setScanPhase] = useState("Waiting for resume");
+  const selectedJob = jobs.find((job) => job.id === selectedJobId) ?? null;
+
+  useEffect(() => {
+    if (!scanning) {
+      return;
+    }
+
+    const phases = ["Reading PDF structure", "Extracting keyword signals", "Comparing role requirements", "Preparing match report"];
+    const interval = window.setInterval(() => {
+      setScanProgress((current) => {
+        const next = Math.min(current + Math.random() * 14 + 5, 94);
+        const phaseIndex = Math.min(Math.floor(next / 25), phases.length - 1);
+        setScanPhase(phases[phaseIndex]);
+        return next;
+      });
+    }, 260);
+
+    return () => window.clearInterval(interval);
+  }, [scanning]);
+
+  useEffect(() => {
+    loadJobsForScan();
+  }, []);
+
+  async function loadJobsForScan() {
+    setJobsLoading(true);
+
+    try {
+      const result = await apiRequest("/api/jobs?sort=recent");
+      setJobs(result.jobs ?? []);
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setJobsLoading(false);
+    }
+  }
 
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
@@ -609,44 +676,329 @@ function ResumeUploadPanel() {
     }
 
     setSelectedFile(file);
-    setNotice({ type: "success", text: "Resume accepted. ATS scanning will connect here next." });
+    setScan(null);
+    setNotice({ type: "success", text: "Resume accepted. Add a job description or run the intake scan." });
+  }
+
+  function handleJobSelection(jobId: string) {
+    setSelectedJobId(jobId);
+    setScan(null);
+
+    const selectedJob = jobs.find((job) => job.id === jobId);
+    if (selectedJob) {
+      setJobDescription(selectedJob.description);
+      setNotice({ type: "success", text: `Using ${selectedJob.title} at ${selectedJob.companyName} for this scan.` });
+    }
+  }
+
+  async function handleScan() {
+    if (!selectedFile) {
+      setNotice({ type: "error", text: "Upload a PDF resume before scanning." });
+      return;
+    }
+
+    setScanning(true);
+    setScanProgress(4);
+    setScanPhase("Starting scan");
+    setNotice(null);
+
+    try {
+      const [result] = await Promise.all([
+        apiRequest("/api/resume-match/scan", {
+          method: "POST",
+          body: {
+            resumeFileName: selectedFile.name,
+            resumeDataUrl: await readFileAsDataUrl(selectedFile),
+            jobPostId: selectedJobId,
+            jobDescription,
+          },
+        }),
+        delay(1600),
+      ]);
+      setScanProgress(100);
+      setScanPhase("Match report ready");
+      setScan(result.scan);
+      setNotice({ type: "success", text: "Resume scan completed and stored." });
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      window.setTimeout(() => setScanning(false), 350);
+    }
   }
 
   return (
-    <section className="portal-grid">
+    <section className="portal-grid scan-workflow-grid">
       <article className="portal-card upload-card">
         <span className="card-label">Resume upload</span>
-        <h2>Upload a PDF for the ATS scan.</h2>
+        <h2>Upload a PDF for the resume match scan.</h2>
         <p>
-          This intake accepts PDF resumes now. The future scanner will parse the file, compare it against job
-          descriptions, and return an interview-fit score with resume fixes.
+          This uses Dinero's new scan wrapper. The current provider is a local mock, but it already stores structured
+          score output so a real PDF parser/model can plug in next.
         </p>
         <label className="file-drop">
           <input type="file" accept="application/pdf,.pdf" onChange={handleFileChange} />
           <strong>{selectedFile ? selectedFile.name : "Choose resume PDF"}</strong>
-          <span>{selectedFile ? `${formatFileSize(selectedFile.size)} ready for scanner setup` : "PDF only"}</span>
+          <span>{selectedFile ? `${formatFileSize(selectedFile.size)} ready to scan` : "PDF only"}</span>
+        </label>
+        <label className="scan-description-field">
+          Select a Dinero job
+          <select value={selectedJobId} onChange={(event) => handleJobSelection(event.target.value)} disabled={jobsLoading}>
+            <option value="">{jobsLoading ? "Loading jobs..." : "Select below"}</option>
+            {jobs.map((job) => (
+              <option value={job.id} key={job.id}>
+                {job.title} · {job.companyName}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="scan-description-field">
+          Job description
+          <textarea
+            value={jobDescription}
+            onChange={(event) => setJobDescription(event.target.value)}
+            placeholder="Select a job from Dinero or paste a target job description here. This can stay blank for an intake-only scan."
+          />
         </label>
         {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+        <button className="primary-button full-width" type="button" disabled={scanning || !selectedFile} onClick={handleScan}>
+          {scanning ? "Scanning..." : "Run scan"}
+        </button>
+        {scanning && <ScanLoadingBar progress={scanProgress} phase={scanPhase} />}
       </article>
 
       <article className="portal-card scan-card">
-        <span className="card-label">ATS scan preview</span>
-        <div className="scan-preview">
-          <div>
-            <strong>Pending</strong>
-            <span>Resume parser</span>
+        <span className="card-label">Scan result</span>
+        {scan ? (
+          <div className="scan-result-stack">
+            <ResumeScanResult scan={scan} />
+            {scan.jobPostId && selectedJob?.sourceKind === "hirer" && <HirerOutreachComposer job={selectedJob} />}
           </div>
-          <div>
-            <strong>Next</strong>
-            <span>Job description match</span>
-          </div>
-          <div>
-            <strong>Later</strong>
-            <span>Score recommendations</span>
-          </div>
-        </div>
+        ) : (
+          <ScanEmptyState />
+        )}
       </article>
     </section>
+  );
+}
+
+function ScanLoadingBar({ progress, phase }: { progress: number; phase: string }) {
+  return (
+    <div className="scan-loader" aria-label="Resume scan progress">
+      <div className="scan-loader-top">
+        <span>{phase}</span>
+        <strong>{Math.round(progress)}%</strong>
+      </div>
+      <div className="scan-loader-track">
+        <div style={{ width: `${progress}%` }} />
+      </div>
+      <p>Mapping resume evidence against high-impact job keywords.</p>
+    </div>
+  );
+}
+
+function ScanEmptyState() {
+  return (
+    <div className="scan-preview">
+      <div>
+        <strong>Ready</strong>
+        <span>PDF intake wrapper</span>
+      </div>
+      <div>
+        <strong>Optional</strong>
+        <span>Job description match</span>
+      </div>
+      <div>
+        <strong>Next</strong>
+        <span>Real PDF parser/model provider</span>
+      </div>
+    </div>
+  );
+}
+
+function ResumeScanResult({ scan }: { scan: ResumeMatchScan }) {
+  return (
+    <div className="scan-result">
+      <div className="scan-overview">
+        <div className="score-ring">
+          <span>{scan.interviewProbability === null ? "--" : `${Math.round(scan.interviewProbability)}%`}</span>
+          <strong>{scan.status === "scored" ? "Keyword match" : "Needs job description"}</strong>
+        </div>
+        <div className="fit-checks">
+          <div className={`fit-check ${scan.roleLevelFit}`}>
+            <span>Role level</span>
+            <strong>{formatRoleLevelFit(scan.roleLevelFit)}</strong>
+          </div>
+          <div className={`fit-check qualification-${scan.qualificationsMet}`}>
+            <span>Qualifications met</span>
+            <strong>{formatQualificationsMet(scan.qualificationsMet)}</strong>
+          </div>
+        </div>
+      </div>
+      <p>{scan.summary}</p>
+      <div className="qualification-summary">
+        <strong>Minimum requirements</strong>
+        <span>{scan.qualificationSummary}</span>
+      </div>
+      <div className="scan-meta">
+        {scan.jobTitle && <span>{scan.jobTitle}</span>}
+        <span>{scan.provider}</span>
+        <span>{scan.modelVersion}</span>
+        <span>{Math.round(scan.confidence)}% confidence</span>
+      </div>
+      <SignalList title="Matched keywords" items={scan.matchedSignals} empty="No role-specific matches yet." />
+      <SignalList title="Missing keywords" items={scan.missingSignals} empty="No missing keywords reported." />
+      <SignalList title="Missing qualifications" items={scan.missingQualifications} empty="No missing minimum qualifications reported." />
+      <SignalList title="Recommendations" items={scan.recommendations} empty="No recommendations yet." />
+    </div>
+  );
+}
+
+function formatRoleLevelFit(value: ResumeMatchScan["roleLevelFit"]) {
+  const labels = {
+    too_high: "Too high level",
+    good_fit: "Good level fit",
+    too_low: "Too low level",
+    unclear: "Unclear",
+  };
+
+  return labels[value];
+}
+
+function formatQualificationsMet(value: ResumeMatchScan["qualificationsMet"]) {
+  const labels = {
+    yes: "Yes",
+    no: "No",
+    unclear: "Unclear",
+  };
+
+  return labels[value];
+}
+
+function HirerOutreachComposer({ job }: { job: JobPost }) {
+  const [message, setMessage] = useState("");
+  const [notice, setNotice] = useState<Notice>(null);
+  const [drafting, setDrafting] = useState(true);
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let interval: number | null = null;
+
+    async function loadStarter() {
+      setMessage("");
+      setNotice(null);
+      setDrafting(true);
+
+      let starter = OUTREACH_FALLBACK_STARTER;
+      try {
+        const result = await apiRequest(`/api/jobs/${job.id}/outreach-draft`, { method: "POST" });
+        starter = result.draft?.starter ?? starter;
+      } catch {
+        starter = OUTREACH_FALLBACK_STARTER;
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      const words = starter.split(/\s+/).filter(Boolean).slice(0, 10);
+      let nextWordCount = 0;
+
+      interval = window.setInterval(() => {
+        nextWordCount += 1;
+        setMessage(words.slice(0, nextWordCount).join(" "));
+
+        if (nextWordCount >= words.length) {
+          if (interval !== null) {
+            window.clearInterval(interval);
+          }
+          setDrafting(false);
+        }
+      }, 120);
+    }
+
+    loadStarter();
+
+    return () => {
+      cancelled = true;
+      if (interval !== null) {
+        window.clearInterval(interval);
+      }
+    };
+  }, [job.id]);
+
+  async function handleSendOutreach() {
+    if (hasBlockedOutreachLanguage(message)) {
+      setNotice({ type: "error", text: "Please revise the message before sending. It includes blocked language." });
+      return;
+    }
+
+    if (message.trim().length < 20) {
+      setNotice({ type: "error", text: "Finish the draft with a little more detail before sending." });
+      return;
+    }
+
+    setSending(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest(`/api/jobs/${job.id}/outreach`, {
+        method: "POST",
+        body: { message },
+      });
+      setNotice({ type: "success", text: result.message ?? "Message sent to the hirer." });
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="outreach-card">
+      <div className="outreach-header">
+        <div>
+          <span className="card-label">Hirer outreach</span>
+          <h3>Draft a message to {job.companyName}.</h3>
+        </div>
+        <span className="ai-pill">{drafting ? "AI drafting" : "AI starter"}</span>
+      </div>
+      <p>
+        Dinero started the first 10 words. Finish it with the strongest reason you match this role, then send it to the
+        hirer contact on file.
+      </p>
+      <textarea
+        value={message}
+        onChange={(event) => {
+          setMessage(event.target.value);
+          if (notice?.type === "error") {
+            setNotice(null);
+          }
+        }}
+        placeholder="Finish your message to the hirer..."
+      />
+      {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+      <button className="primary-button full-width" type="button" onClick={handleSendOutreach} disabled={sending}>
+        {sending ? "Sending..." : "Send to hirer"}
+      </button>
+    </div>
+  );
+}
+
+function hasBlockedOutreachLanguage(value: string) {
+  return blockedOutreachLanguage.some((pattern) => pattern.test(value));
+}
+
+function SignalList({ title, items, empty }: { title: string; items: string[]; empty: string }) {
+  return (
+    <div className="signal-list">
+      <strong>{title}</strong>
+      <ul>
+        {(items.length ? items : [empty]).map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -2019,6 +2371,10 @@ function readFileAsDataUrl(file: File) {
     reader.addEventListener("error", () => reject(new Error("Could not read image file.")));
     reader.readAsDataURL(file);
   });
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function getApiErrorMessage(payload: {

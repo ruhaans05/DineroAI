@@ -136,6 +136,9 @@ Implemented API routes:
 - `PATCH /api/forum/posts/:id/resolved`
 - `GET /api/jobs`
 - `POST /api/jobs/:id/click`
+- `POST /api/jobs/:id/outreach-draft`
+- `POST /api/jobs/:id/outreach`
+- `POST /api/resume-match/scan`
 - `GET /api/hirer/profile`
 - `PUT /api/hirer/profile`
 - `GET /api/hirer/jobs`
@@ -155,6 +158,15 @@ CONTACT_TO=dinerobusinessofficial@gmail.com
 ```
 
 Without `RESEND_API_KEY`, Dinero logs verification and contact emails in the API console for local development. `EMAIL_FROM` must be a sender Resend allows; `EMAIL_REPLY_TO` can point replies to a Gmail inbox. Contact page submissions are sent to `CONTACT_TO`.
+
+Resume matching and hirer outreach starters use the GPT wrapper when OpenAI is configured. GPT scans return the keyword match percent, role level fit, whether minimum qualifications are met, missing qualifications, and resume rewrite recommendations.
+
+```bash
+OPENAI_API_KEY=your_openai_key
+OPENAI_MODEL=gpt-5.4-mini
+```
+
+Without `OPENAI_API_KEY`, Dinero falls back to the local mock scan and the built-in 10-word outreach starter.
 
 ## Company Verification
 
