@@ -130,8 +130,18 @@ Implemented API routes:
 - `POST /api/contact`
 - `GET /api/forum/posts`
 - `POST /api/forum/posts`
+- `PATCH /api/forum/posts/:id`
+- `DELETE /api/forum/posts/:id`
 - `POST /api/forum/posts/:id/comments`
 - `PATCH /api/forum/posts/:id/resolved`
+- `GET /api/jobs`
+- `POST /api/jobs/:id/click`
+- `GET /api/hirer/profile`
+- `PUT /api/hirer/profile`
+- `GET /api/hirer/jobs`
+- `POST /api/hirer/jobs`
+- `PATCH /api/hirer/jobs/:id`
+- `DELETE /api/hirer/jobs/:id`
 
 Signup creates an unverified account and a 30-minute email verification token. Users cannot sign in until they click the verification link. Signin creates an HTTP-only session cookie backed by the `user_sessions` table.
 

@@ -5,7 +5,9 @@ import "./styles.css";
 
 type View = "home" | "about" | "contact" | "applicant" | "hirer";
 type AuthMode = "signin" | "signup";
-type PortalTab = "resume" | "forum";
+type PortalTab = "resume" | "jobs" | "forum";
+type HirerTab = "profile" | "jobs";
+type JobSort = "popular" | "recent";
 type Notice = { type: "success" | "error"; text: string } | null;
 type AuthNotice = { view: "applicant" | "hirer"; notice: NonNullable<Notice> } | null;
 type CurrentUser = {
@@ -31,10 +33,47 @@ type ForumPost = {
   isResolved: boolean;
   createdAt: string;
   updatedAt: string;
+  editedAt: string | null;
   authorUserId: string;
   authorName: string;
   authorEmail: string;
   comments: ForumComment[];
+};
+type HirerProfile = {
+  id: string;
+  userId: string;
+  displayName: string | null;
+  profileImageDataUrl: string | null;
+  headline: string | null;
+  message: string | null;
+  companyName: string | null;
+  companyInfo: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  websiteUrl: string | null;
+  linkedinUrl: string | null;
+};
+type JobPost = {
+  id: string;
+  hirerUserId: string | null;
+  title: string;
+  companyName: string;
+  location: string | null;
+  employmentType: string | null;
+  applicationUrl: string;
+  description: string;
+  sourceKind: "hirer" | "scraped_api";
+  clickCount: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  hirer: {
+    displayName: string | null;
+    profileImageDataUrl: string | null;
+    headline: string | null;
+    message: string | null;
+    contactEmail: string | null;
+  };
 };
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -122,6 +161,8 @@ function App() {
           currentUser={currentUser}
           initialNotice={authNotice?.view === "hirer" ? authNotice.notice : null}
           onAuthenticated={setCurrentUser}
+          onNavigate={setView}
+          onLogout={handleLogout}
           onNoticeConsumed={() => setAuthNotice(null)}
         />
       )}
@@ -508,12 +549,17 @@ function ApplicantPortal({
         <button className={activeTab === "resume" ? "selected" : ""} onClick={() => setActiveTab("resume")} type="button">
           Resume scan
         </button>
+        <button className={activeTab === "jobs" ? "selected" : ""} onClick={() => setActiveTab("jobs")} type="button">
+          Jobs
+        </button>
         <button className={activeTab === "forum" ? "selected" : ""} onClick={() => setActiveTab("forum")} type="button">
           Global forum
         </button>
       </div>
 
-      {activeTab === "resume" ? <ResumeUploadPanel /> : <ForumPanel currentUser={user} />}
+      {activeTab === "resume" && <ResumeUploadPanel />}
+      {activeTab === "jobs" && <ApplicantJobsPanel />}
+      {activeTab === "forum" && <ForumPanel currentUser={user} />}
 
       {settingsOpen && (
         <div className="settings-backdrop" role="presentation" onClick={() => setSettingsOpen(false)}>
@@ -604,11 +650,103 @@ function ResumeUploadPanel() {
   );
 }
 
+function ApplicantJobsPanel() {
+  const [jobs, setJobs] = useState<JobPost[]>([]);
+  const [sort, setSort] = useState<JobSort>("recent");
+  const [notice, setNotice] = useState<Notice>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadJobs(sort);
+  }, [sort]);
+
+  async function loadJobs(nextSort: JobSort) {
+    setLoading(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest(`/api/jobs?sort=${nextSort}`);
+      setJobs(result.jobs ?? []);
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleOpenJob(job: JobPost) {
+    try {
+      const result = await apiRequest(`/api/jobs/${job.id}/click`, { method: "POST" });
+      const applicationUrl = result.applicationUrl ?? job.applicationUrl;
+      window.open(applicationUrl, "_blank", "noopener,noreferrer");
+      await loadJobs(sort);
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    }
+  }
+
+  return (
+    <section className="jobs-panel">
+      <div className="jobs-toolbar">
+        <div>
+          <span className="card-label">Job postings</span>
+          <h2>Explore roles posted through Dinero.</h2>
+        </div>
+        <div className="portal-tabs compact" aria-label="Job sorting">
+          <button className={sort === "recent" ? "selected" : ""} type="button" onClick={() => setSort("recent")}>
+            Recent
+          </button>
+          <button className={sort === "popular" ? "selected" : ""} type="button" onClick={() => setSort("popular")}>
+            Popular
+          </button>
+        </div>
+      </div>
+      {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+      {loading && <p className="empty-state">Loading job postings...</p>}
+      {!loading && jobs.length === 0 && (
+        <p className="empty-state">No job postings yet. Hirer posts and future scraped API roles will appear here.</p>
+      )}
+      <div className="jobs-list">
+        {jobs.map((job) => (
+          <article className="job-card" key={job.id}>
+            <div className="job-card-main">
+              <div className="job-source-row">
+                <span>{job.sourceKind === "hirer" ? "Hirer post" : "API scrape"}</span>
+                <time>{formatDate(job.createdAt)}</time>
+              </div>
+              <h3>{job.title}</h3>
+              <p className="job-company">
+                {job.companyName}
+                {job.location ? ` · ${job.location}` : ""}
+                {job.employmentType ? ` · ${job.employmentType}` : ""}
+              </p>
+              <p>{job.description}</p>
+              {job.hirer.message && <p className="hirer-message">{job.hirer.message}</p>}
+            </div>
+            <div className="job-card-side">
+              {job.hirer.profileImageDataUrl && <img src={job.hirer.profileImageDataUrl} alt="" />}
+              <strong>{job.hirer.displayName || job.companyName}</strong>
+              {job.hirer.headline && <span>{job.hirer.headline}</span>}
+              <span>{job.clickCount} clicks</span>
+              <button className="primary-button full-width" type="button" onClick={() => handleOpenJob(job)}>
+                Open application
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ForumPanel({ currentUser }: { currentUser: CurrentUser }) {
   const [posts, setPosts] = useState<ForumPost[]>([]);
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [editSubject, setEditSubject] = useState("");
+  const [editBody, setEditBody] = useState("");
   const [notice, setNotice] = useState<Notice>(null);
   const [loading, setLoading] = useState(true);
   const [posting, setPosting] = useState(false);
@@ -680,6 +818,49 @@ function ForumPanel({ currentUser }: { currentUser: CurrentUser }) {
     }
   }
 
+  function startEditing(post: ForumPost) {
+    setEditingPostId(post.id);
+    setEditSubject(post.subject);
+    setEditBody(post.body);
+    setNotice(null);
+  }
+
+  function cancelEditing() {
+    setEditingPostId(null);
+    setEditSubject("");
+    setEditBody("");
+  }
+
+  async function handleEditPost(postId: string) {
+    try {
+      await apiRequest(`/api/forum/posts/${postId}`, {
+        method: "PATCH",
+        body: { subject: editSubject, body: editBody },
+      });
+      cancelEditing();
+      await loadPosts();
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    }
+  }
+
+  async function handleDeletePost(post: ForumPost) {
+    const confirmed = window.confirm("Delete this post and all of its replies?");
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await apiRequest(`/api/forum/posts/${post.id}`, {
+        method: "DELETE",
+      });
+      setNotice({ type: "success", text: "Post deleted." });
+      await loadPosts();
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    }
+  }
+
   return (
     <section className="forum-layout">
       <aside className="portal-card forum-composer">
@@ -711,17 +892,63 @@ function ForumPanel({ currentUser }: { currentUser: CurrentUser }) {
             <div className="forum-post-header">
               <div>
                 <span>{post.authorName}</span>
-                <time>{formatDate(post.createdAt)}</time>
+                <time>
+                  {formatDate(post.createdAt)}
+                  {post.editedAt && <em> (edited)</em>}
+                </time>
               </div>
               {post.authorUserId === currentUser.id && (
-                <button className="resolved-toggle" type="button" onClick={() => handleResolved(post)}>
-                  {post.isResolved ? "Resolved" : "Mark resolved"}
-                </button>
+                <div className="post-actions">
+                  <button className="resolved-toggle" type="button" onClick={() => handleResolved(post)}>
+                    {post.isResolved ? "Resolved" : "Mark resolved"}
+                  </button>
+                  <button className="mini-action" type="button" onClick={() => startEditing(post)}>
+                    Edit
+                  </button>
+                  <button className="mini-action danger" type="button" onClick={() => handleDeletePost(post)}>
+                    Delete
+                  </button>
+                </div>
               )}
               {post.authorUserId !== currentUser.id && post.isResolved && <span className="resolved-badge">Resolved</span>}
             </div>
-            <h3>{post.subject}</h3>
-            <p>{post.body}</p>
+            {editingPostId === post.id ? (
+              <form className="auth-form edit-post-form" onSubmit={(event) => event.preventDefault()}>
+                <label>
+                  Subject
+                  <input
+                    value={editSubject}
+                    onChange={(event) => setEditSubject(event.target.value)}
+                    minLength={4}
+                    maxLength={160}
+                    required
+                  />
+                </label>
+                <label>
+                  Post
+                  <textarea
+                    value={editBody}
+                    onChange={(event) => setEditBody(event.target.value)}
+                    minLength={10}
+                    maxLength={4000}
+                    required
+                  />
+                </label>
+                <div className="edit-actions">
+                  <button className="primary-button" type="button" onClick={() => handleEditPost(post.id)}>
+                    Save edit
+                  </button>
+                  <button className="secondary-button" type="button" onClick={cancelEditing}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <>
+                <h3>{post.subject}</h3>
+                <p>{post.body}</p>
+              </>
+            )}
             <div className="comments-list">
               {post.comments.map((comment) => (
                 <div className="comment" key={comment.id}>
@@ -741,6 +968,428 @@ function ForumPanel({ currentUser }: { currentUser: CurrentUser }) {
               />
               <button className="secondary-button" type="button" onClick={() => handleComment(post.id)}>
                 Reply
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function HirerPortal({
+  user,
+  onNavigate,
+  onLogout,
+}: {
+  user: CurrentUser;
+  onNavigate: (view: View) => void;
+  onLogout: () => void;
+}) {
+  const [activeTab, setActiveTab] = useState<HirerTab>("profile");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  return (
+    <main className="portal-page">
+      <div className="portal-topbar">
+        <button className="secondary-button" type="button" onClick={() => onNavigate("home")}>
+          Home
+        </button>
+        <div>
+          <span>Hirer portal</span>
+          <strong>{user.fullName || user.email}</strong>
+        </div>
+        <button className="secondary-button" type="button" onClick={() => setSettingsOpen(true)}>
+          Settings
+        </button>
+      </div>
+
+      <section className="portal-hero">
+        <div>
+          <p className="eyebrow">Hiring workspace</p>
+          <h1>Build your profile and publish roles.</h1>
+          <p>
+            Create a public hiring profile, upload a picture, and post job links. Dinero will add link scraping later;
+            for now, the role details are entered directly and shown to applicants.
+          </p>
+        </div>
+        <div className="portal-status-card">
+          <span>Visible to applicants</span>
+          <strong>Profile + job posts</strong>
+          <p>Applicants can sort jobs by recent or popular, with each application click tracked.</p>
+        </div>
+      </section>
+
+      <div className="portal-tabs" aria-label="Hirer portal sections">
+        <button className={activeTab === "profile" ? "selected" : ""} onClick={() => setActiveTab("profile")} type="button">
+          Hiring profile
+        </button>
+        <button className={activeTab === "jobs" ? "selected" : ""} onClick={() => setActiveTab("jobs")} type="button">
+          Job postings
+        </button>
+      </div>
+
+      {activeTab === "profile" ? <HirerProfilePanel user={user} /> : <HirerJobsPanel user={user} />}
+
+      {settingsOpen && (
+        <div className="settings-backdrop" role="presentation" onClick={() => setSettingsOpen(false)}>
+          <aside className="settings-panel" aria-label="Hirer settings" onClick={(event) => event.stopPropagation()}>
+            <div className="settings-header">
+              <div>
+                <p className="eyebrow">Settings</p>
+                <h2>Account controls</h2>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setSettingsOpen(false)} aria-label="Close settings">
+                x
+              </button>
+            </div>
+            <div className="settings-user">
+              <span>{user.fullName || "Hirer"}</span>
+              <strong>{user.email}</strong>
+            </div>
+            <p className="settings-note">More hiring settings will live here later.</p>
+            <button className="primary-button full-width" type="button" onClick={onLogout}>
+              Sign out
+            </button>
+          </aside>
+        </div>
+      )}
+    </main>
+  );
+}
+
+function HirerProfilePanel({ user }: { user: CurrentUser }) {
+  const [displayName, setDisplayName] = useState(user.fullName ?? "");
+  const [profileImageDataUrl, setProfileImageDataUrl] = useState("");
+  const [headline, setHeadline] = useState("");
+  const [message, setMessage] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [companyInfo, setCompanyInfo] = useState("");
+  const [contactEmail, setContactEmail] = useState(user.email);
+  const [contactPhone, setContactPhone] = useState("");
+  const [websiteUrl, setWebsiteUrl] = useState("");
+  const [linkedinUrl, setLinkedinUrl] = useState("");
+  const [notice, setNotice] = useState<Notice>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
+  async function loadProfile() {
+    setLoading(true);
+    try {
+      const result = await apiRequest("/api/hirer/profile");
+      const profile = result.profile as HirerProfile | null;
+      if (profile) {
+        setDisplayName(profile.displayName ?? "");
+        setProfileImageDataUrl(profile.profileImageDataUrl ?? "");
+        setHeadline(profile.headline ?? "");
+        setMessage(profile.message ?? "");
+        setCompanyName(profile.companyName ?? "");
+        setCompanyInfo(profile.companyInfo ?? "");
+        setContactEmail(profile.contactEmail ?? user.email);
+        setContactPhone(profile.contactPhone ?? "");
+        setWebsiteUrl(profile.websiteUrl ?? "");
+        setLinkedinUrl(profile.linkedinUrl ?? "");
+      }
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleImageChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      setNotice({ type: "error", text: "Please upload an image file." });
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size > 750_000) {
+      setNotice({ type: "error", text: "Please use an image under 750 KB for now." });
+      event.target.value = "";
+      return;
+    }
+
+    setProfileImageDataUrl(await readFileAsDataUrl(file));
+  }
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest("/api/hirer/profile", {
+        method: "PUT",
+        body: {
+          displayName,
+          profileImageDataUrl,
+          headline,
+          message,
+          companyName,
+          companyInfo,
+          contactEmail,
+          contactPhone,
+          websiteUrl,
+          linkedinUrl,
+        },
+      });
+      setNotice({ type: "success", text: result.message ?? "Hirer profile saved." });
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="portal-grid">
+      <article className="portal-card">
+        <span className="card-label">Hiring profile</span>
+        <h2>Create the profile applicants see.</h2>
+        <p>Use this to explain who you are, what your company does, and how candidates can contact you.</p>
+        {loading && <p className="empty-state">Loading profile...</p>}
+        <form className="auth-form" onSubmit={handleSubmit}>
+          <label className="profile-image-picker">
+            <input type="file" accept="image/*" onChange={handleImageChange} />
+            {profileImageDataUrl ? <img src={profileImageDataUrl} alt="" /> : <span>Upload picture</span>}
+          </label>
+          <div className="form-grid">
+            <label>
+              Your name
+              <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+            </label>
+            <label>
+              Company
+              <input value={companyName} onChange={(event) => setCompanyName(event.target.value)} />
+            </label>
+          </div>
+          <label>
+            Headline
+            <input value={headline} onChange={(event) => setHeadline(event.target.value)} placeholder="Recruiting ML engineers at..." />
+          </label>
+          <label>
+            Message to applicants
+            <textarea value={message} onChange={(event) => setMessage(event.target.value)} />
+          </label>
+          <label>
+            Company info
+            <textarea value={companyInfo} onChange={(event) => setCompanyInfo(event.target.value)} />
+          </label>
+          <div className="form-grid">
+            <label>
+              Contact email
+              <input type="email" value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} />
+            </label>
+            <label>
+              Contact phone
+              <input value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} />
+            </label>
+          </div>
+          <div className="form-grid">
+            <label>
+              Website
+              <input type="url" value={websiteUrl} onChange={(event) => setWebsiteUrl(event.target.value)} />
+            </label>
+            <label>
+              LinkedIn
+              <input type="url" value={linkedinUrl} onChange={(event) => setLinkedinUrl(event.target.value)} />
+            </label>
+          </div>
+          {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+          <button className="primary-button full-width" type="submit" disabled={saving}>
+            {saving ? "Saving..." : "Save profile"}
+          </button>
+        </form>
+      </article>
+      <article className="portal-card hirer-preview-card">
+        <span className="card-label">Preview</span>
+        {profileImageDataUrl && <img src={profileImageDataUrl} alt="" />}
+        <h3>{displayName || "Your name"}</h3>
+        <strong>{headline || "Hiring headline"}</strong>
+        <p>{message || "Your message to applicants will appear here."}</p>
+        <p>{companyInfo || "Company information will appear here."}</p>
+      </article>
+    </section>
+  );
+}
+
+function HirerJobsPanel({ user }: { user: CurrentUser }) {
+  const emptyJob = {
+    title: "",
+    companyName: "",
+    location: "",
+    employmentType: "",
+    applicationUrl: "",
+    description: "",
+  };
+  const [jobs, setJobs] = useState<JobPost[]>([]);
+  const [form, setForm] = useState(emptyJob);
+  const [editingJobId, setEditingJobId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    loadJobs();
+  }, []);
+
+  async function loadJobs() {
+    setLoading(true);
+    try {
+      const result = await apiRequest("/api/hirer/jobs");
+      setJobs(result.jobs ?? []);
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function updateForm(field: keyof typeof form, value: string) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function startEditingJob(job: JobPost) {
+    setEditingJobId(job.id);
+    setForm({
+      title: job.title,
+      companyName: job.companyName,
+      location: job.location ?? "",
+      employmentType: job.employmentType ?? "",
+      applicationUrl: job.applicationUrl,
+      description: job.description,
+    });
+    setNotice(null);
+  }
+
+  function resetForm() {
+    setEditingJobId(null);
+    setForm(emptyJob);
+  }
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setNotice(null);
+
+    try {
+      const path = editingJobId ? `/api/hirer/jobs/${editingJobId}` : "/api/hirer/jobs";
+      await apiRequest(path, {
+        method: editingJobId ? "PATCH" : "POST",
+        body: form,
+      });
+      setNotice({ type: "success", text: editingJobId ? "Job post updated." : "Job post published." });
+      resetForm();
+      await loadJobs();
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(job: JobPost) {
+    const confirmed = window.confirm("Delete this job posting?");
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await apiRequest(`/api/hirer/jobs/${job.id}`, { method: "DELETE" });
+      setNotice({ type: "success", text: "Job post deleted." });
+      await loadJobs();
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    }
+  }
+
+  return (
+    <section className="hirer-jobs-layout">
+      <article className="portal-card">
+        <span className="card-label">Upload job posting</span>
+        <h2>{editingJobId ? "Edit job posting." : "Post a role."}</h2>
+        <p>Paste the application link now. Later, Dinero will scrape that link and prefill the details.</p>
+        <form className="auth-form" onSubmit={handleSubmit}>
+          <label>
+            Application link
+            <input
+              type="url"
+              value={form.applicationUrl}
+              onChange={(event) => updateForm("applicationUrl", event.target.value)}
+              placeholder="https://company.com/careers/job"
+              required
+            />
+          </label>
+          <div className="form-grid">
+            <label>
+              Job title
+              <input value={form.title} onChange={(event) => updateForm("title", event.target.value)} required />
+            </label>
+            <label>
+              Company
+              <input value={form.companyName} onChange={(event) => updateForm("companyName", event.target.value)} required />
+            </label>
+          </div>
+          <div className="form-grid">
+            <label>
+              Location
+              <input value={form.location} onChange={(event) => updateForm("location", event.target.value)} />
+            </label>
+            <label>
+              Employment type
+              <input value={form.employmentType} onChange={(event) => updateForm("employmentType", event.target.value)} />
+            </label>
+          </div>
+          <label>
+            Description
+            <textarea value={form.description} onChange={(event) => updateForm("description", event.target.value)} required />
+          </label>
+          {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+          <div className="edit-actions">
+            <button className="primary-button" type="submit" disabled={saving}>
+              {saving ? "Saving..." : editingJobId ? "Save job" : "Publish job"}
+            </button>
+            {editingJobId && (
+              <button className="secondary-button" type="button" onClick={resetForm}>
+                Cancel
+              </button>
+            )}
+          </div>
+        </form>
+      </article>
+      <div className="forum-feed">
+        {loading && <p className="empty-state">Loading your postings...</p>}
+        {!loading && jobs.length === 0 && <p className="empty-state">No job postings yet.</p>}
+        {jobs.map((job) => (
+          <article className="job-card compact-job-card" key={job.id}>
+            <div className="job-card-main">
+              <div className="job-source-row">
+                <span>{job.clickCount} clicks</span>
+                <time>{formatDate(job.createdAt)}</time>
+              </div>
+              <h3>{job.title}</h3>
+              <p className="job-company">
+                {job.companyName}
+                {job.location ? ` · ${job.location}` : ""}
+              </p>
+              <p>{job.description}</p>
+            </div>
+            <div className="post-actions">
+              <button className="mini-action" type="button" onClick={() => startEditingJob(job)}>
+                Edit
+              </button>
+              <button className="mini-action danger" type="button" onClick={() => handleDelete(job)}>
+                Delete
               </button>
             </div>
           </article>
@@ -958,11 +1607,15 @@ function HirerAuth({
   currentUser,
   initialNotice,
   onAuthenticated,
+  onNavigate,
+  onLogout,
   onNoticeConsumed,
 }: {
   currentUser: CurrentUser | null;
   initialNotice: Notice;
   onAuthenticated: (user: CurrentUser) => void;
+  onNavigate: (view: View) => void;
+  onLogout: () => void;
   onNoticeConsumed: () => void;
 }) {
   const [mode, setMode] = useState<AuthMode>("signin");
@@ -1064,6 +1717,10 @@ function HirerAuth({
     } finally {
       setResending(false);
     }
+  }
+
+  if (currentUser?.role === "hirer" && currentUser.emailVerified) {
+    return <HirerPortal user={currentUser} onNavigate={onNavigate} onLogout={onLogout} />;
   }
 
   return (
@@ -1353,6 +2010,15 @@ function formatFileSize(bytes: number) {
   }
 
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result ?? "")));
+    reader.addEventListener("error", () => reject(new Error("Could not read image file.")));
+    reader.readAsDataURL(file);
+  });
 }
 
 function getApiErrorMessage(payload: {
