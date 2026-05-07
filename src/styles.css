@@ -951,6 +951,33 @@ progress::-moz-progress-bar {
   text-align: center;
 }
 
+.score-ring.chance-low {
+  border-color: #fee2e2;
+  border-top-color: #dc2626;
+}
+
+.score-ring.chance-medium {
+  border-color: #fef3c7;
+  border-top-color: #f59e0b;
+}
+
+.score-ring.chance-high {
+  border-color: var(--green-soft);
+  border-top-color: var(--green);
+}
+
+.score-ring.chance-low strong {
+  color: #b91c1c;
+}
+
+.score-ring.chance-medium strong {
+  color: #92400e;
+}
+
+.score-ring.chance-high strong {
+  color: var(--green-dark);
+}
+
 .score-ring span {
   color: var(--black);
   font-size: 2.4rem;
@@ -965,9 +992,13 @@ progress::-moz-progress-bar {
   text-transform: uppercase;
 }
 
-.scan-result p {
+.summary-bullets {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
   color: var(--ink);
-  line-height: 1.6;
+  line-height: 1.45;
 }
 
 .fit-checks {

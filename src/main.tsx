@@ -95,6 +95,7 @@ type ResumeMatchScan = {
   qualificationSummary: string;
   missingQualifications: string[];
   summary: string;
+  summaryBullets: string[];
   matchedSignals: string[];
   missingSignals: string[];
   recommendations: string[];
@@ -824,7 +825,7 @@ function ResumeScanResult({ scan }: { scan: ResumeMatchScan }) {
   return (
     <div className="scan-result">
       <div className="scan-overview">
-        <div className="score-ring">
+        <div className={`score-ring ${getInterviewChanceClass(scan.interviewProbability)}`}>
           <span>{scan.interviewProbability === null ? "--" : `${Math.round(scan.interviewProbability)}%`}</span>
           <strong>{scan.status === "scored" ? "Interview chance" : "Needs job description"}</strong>
         </div>
@@ -843,7 +844,11 @@ function ResumeScanResult({ scan }: { scan: ResumeMatchScan }) {
           </div>
         </div>
       </div>
-      <p>{scan.summary}</p>
+      <ul className="summary-bullets">
+        {getScanSummaryBullets(scan).map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
       <div className="qualification-summary">
         <strong>Minimum requirements</strong>
         <span>{scan.missingQualifications.length === 0 && scan.qualificationsMet === "yes" ? "All met" : "No"}</span>
@@ -862,6 +867,34 @@ function ResumeScanResult({ scan }: { scan: ResumeMatchScan }) {
       <SignalList title="Recommendations" items={scan.recommendations} empty="No recommendations yet." />
     </div>
   );
+}
+
+function getScanSummaryBullets(scan: ResumeMatchScan) {
+  if (scan.summaryBullets?.length) {
+    return scan.summaryBullets.slice(0, 3);
+  }
+
+  return scan.summary
+    .split(/(?<=[.!?])\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
+function getInterviewChanceClass(value: number | null) {
+  if (value === null) {
+    return "chance-unknown";
+  }
+
+  if (value < 30) {
+    return "chance-low";
+  }
+
+  if (value <= 60) {
+    return "chance-medium";
+  }
+
+  return "chance-high";
 }
 
 function RecruiterOutreachComposer({ scan }: { scan: ResumeMatchScan }) {
