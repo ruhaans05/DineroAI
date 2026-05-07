@@ -853,12 +853,11 @@ function ResumeScanResult({ scan }: { scan: ResumeMatchScan }) {
         <strong>Minimum requirements</strong>
         <span>{scan.missingQualifications.length === 0 && scan.qualificationsMet === "yes" ? "All met" : "No"}</span>
       </div>
-      <div className="scan-meta">
-        {scan.jobTitle && <span>{scan.jobTitle}</span>}
-        <span>{scan.provider}</span>
-        <span>{scan.modelVersion}</span>
-        <span>{Math.round(scan.confidence)}% confidence</span>
-      </div>
+      {scan.jobTitle && (
+        <div className="scan-meta">
+          <span>{scan.jobTitle}</span>
+        </div>
+      )}
       <SignalList title="Matched keywords" items={scan.matchedSignals} empty="No role-specific matches yet." />
       <SignalList title="Missing keywords" items={scan.missingSignals} empty="No missing keywords reported." />
       {scan.missingQualifications.length > 0 && (
