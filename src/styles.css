@@ -1222,6 +1222,14 @@ progress::-moz-progress-bar {
   line-height: 1.05;
 }
 
+.secondary-toolbar {
+  margin-top: 28px;
+}
+
+.secondary-toolbar h2 {
+  font-size: clamp(1.35rem, 2vw, 1.9rem);
+}
+
 .jobs-list {
   display: grid;
   gap: 14px;
@@ -1236,6 +1244,22 @@ progress::-moz-progress-bar {
   background: var(--white);
   box-shadow: 0 16px 44px rgba(17, 21, 19, 0.06);
   padding: 24px;
+}
+
+.job-feed-card.clickable {
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.job-feed-card.clickable:hover,
+.job-feed-card.clickable:focus-visible {
+  border-color: rgba(22, 163, 74, 0.32);
+  box-shadow: 0 20px 54px rgba(17, 21, 19, 0.1);
+  transform: translateY(-1px);
+  outline: none;
 }
 
 .compact-job-card {
@@ -1263,6 +1287,31 @@ progress::-moz-progress-bar {
   font-weight: 900;
 }
 
+.job-source-row .job-status-pill {
+  background: #f6f8f4;
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
+.job-source-row .job-status-pill.expired {
+  background: #fff1f1;
+  color: #a51f17;
+  border-color: #f3c4c0;
+}
+
+.expired-job-card {
+  background: #fbfcfa;
+}
+
+.section-kicker {
+  margin-top: 4px;
+  color: var(--green-dark);
+  font-size: 0.82rem;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .job-card h3 {
   margin: 0;
   color: var(--black);
@@ -1285,6 +1334,40 @@ progress::-moz-progress-bar {
   border-left: 3px solid var(--green);
   background: var(--soft);
   padding: 12px 14px;
+}
+
+.job-thread-post {
+  display: grid;
+  gap: 14px;
+}
+
+.job-thread-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+}
+
+.job-thread-heading img {
+  width: 76px;
+  height: 76px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.job-thread-heading h2 {
+  margin-bottom: 6px;
+}
+
+.job-thread-heading strong {
+  color: var(--green-dark);
+}
+
+.job-thread-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 4px;
 }
 
 .job-card-side {
@@ -1361,6 +1444,73 @@ progress::-moz-progress-bar {
 
 .hirer-preview-card strong {
   color: var(--green-dark);
+}
+
+.hirer-search-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.hirer-search-results {
+  display: grid;
+  gap: 14px;
+}
+
+.hirer-result-card {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--white);
+  box-shadow: 0 16px 44px rgba(17, 21, 19, 0.06);
+  padding: 20px;
+}
+
+.hirer-result-card img {
+  width: 96px;
+  height: 96px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.hirer-result-card div {
+  display: grid;
+  gap: 8px;
+}
+
+.hirer-result-card h3 {
+  margin: 0;
+  color: var(--black);
+  font-size: 1.5rem;
+}
+
+.hirer-result-card strong {
+  color: var(--green-dark);
+}
+
+.hirer-result-card span,
+.hirer-result-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.hirer-contact-row {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hirer-contact-row a {
+  border-radius: 999px;
+  background: var(--green-soft);
+  color: var(--green-dark);
+  padding: 7px 10px;
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-decoration: none;
 }
 
 .forum-layout {
@@ -1567,6 +1717,12 @@ time em {
 }
 
 .mini-action.danger {
+  border-color: rgba(180, 35, 24, 0.18);
+  background: #fff1f0;
+  color: #9b1c13;
+}
+
+.resolved-badge.danger {
   border-color: rgba(180, 35, 24, 0.18);
   background: #fff1f0;
   color: #9b1c13;

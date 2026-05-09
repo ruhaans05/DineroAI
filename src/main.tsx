@@ -5,7 +5,7 @@ import "./styles.css";
 
 type View = "home" | "about" | "contact" | "applicant" | "hirer";
 type AuthMode = "signin" | "signup";
-type PortalTab = "resume" | "jobs" | "forum";
+type PortalTab = "resume" | "jobs" | "hirers" | "forum";
 type HirerTab = "profile" | "jobs";
 type JobSort = "popular" | "recent";
 type Notice = { type: "success" | "error"; text: string } | null;
@@ -65,6 +65,11 @@ type JobPost = {
   sourceKind: "hirer" | "scraped_api";
   clickCount: number;
   isActive: boolean;
+  expiresAt: string | null;
+  isExpired: boolean;
+  applicantHasApplied: boolean;
+  commentCount: number;
+  comments: ForumComment[];
   createdAt: string;
   updatedAt: string;
   hirer: {
@@ -122,11 +127,13 @@ function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const verifyToken = params.get("verifyToken");
+    const verificationRole = params.get("role");
+    const fallbackVerifyView = verificationRole === "hirer" ? "hirer" : "applicant";
 
     if (verifyToken) {
       verifyEmailFromLink(verifyToken)
         .then((user) => {
-          const targetView = user?.role === "hirer" ? "hirer" : "applicant";
+          const targetView = user?.role === "hirer" ? "hirer" : fallbackVerifyView;
           setCurrentUser(null);
           setView(targetView);
           setAuthNotice({
@@ -139,9 +146,9 @@ function App() {
         })
         .catch((error) => {
           setCurrentUser(null);
-          setView("applicant");
+          setView(fallbackVerifyView);
           setAuthNotice({
-            view: "applicant",
+            view: fallbackVerifyView,
             notice: {
               type: "error",
               text: getErrorMessage(error),
@@ -587,6 +594,9 @@ function ApplicantPortal({
         <button className={activeTab === "jobs" ? "selected" : ""} onClick={() => setActiveTab("jobs")} type="button">
           Jobs
         </button>
+        <button className={activeTab === "hirers" ? "selected" : ""} onClick={() => setActiveTab("hirers")} type="button">
+          Hirers
+        </button>
         <button className={activeTab === "forum" ? "selected" : ""} onClick={() => setActiveTab("forum")} type="button">
           Global forum
         </button>
@@ -594,6 +604,7 @@ function ApplicantPortal({
 
       {activeTab === "resume" && <ResumeUploadPanel />}
       {activeTab === "jobs" && <ApplicantJobsPanel />}
+      {activeTab === "hirers" && <ApplicantHirerSearchPanel />}
       {activeTab === "forum" && <ForumPanel currentUser={user} />}
 
       {settingsOpen && (
@@ -1134,9 +1145,13 @@ function SignalList({ title, items, empty }: { title: string; items: string[]; e
 
 function ApplicantJobsPanel() {
   const [jobs, setJobs] = useState<JobPost[]>([]);
+  const [appliedJobs, setAppliedJobs] = useState<JobPost[]>([]);
   const [sort, setSort] = useState<JobSort>("recent");
+  const [selectedJob, setSelectedJob] = useState<JobPost | null>(null);
+  const [jobCommentDraft, setJobCommentDraft] = useState("");
   const [notice, setNotice] = useState<Notice>(null);
   const [loading, setLoading] = useState(true);
+  const [jobDetailLoading, setJobDetailLoading] = useState(false);
 
   useEffect(() => {
     loadJobs(sort);
@@ -1147,8 +1162,12 @@ function ApplicantJobsPanel() {
     setNotice(null);
 
     try {
-      const result = await apiRequest(`/api/jobs?sort=${nextSort}`);
-      setJobs(result.jobs ?? []);
+      const [jobsResult, appliedResult] = await Promise.all([
+        apiRequest(`/api/jobs?sort=${nextSort}`),
+        apiRequest("/api/applicant/applied-jobs"),
+      ]);
+      setJobs(jobsResult.jobs ?? []);
+      setAppliedJobs(appliedResult.jobs ?? []);
     } catch (error) {
       setNotice({ type: "error", text: getErrorMessage(error) });
     } finally {
@@ -1165,6 +1184,164 @@ function ApplicantJobsPanel() {
     } catch (error) {
       setNotice({ type: "error", text: getErrorMessage(error) });
     }
+  }
+
+  async function loadJobThread(jobId: string) {
+    setJobDetailLoading(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest(`/api/jobs/${jobId}`);
+      setSelectedJob(result.job ?? null);
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+      setSelectedJob(null);
+    } finally {
+      setJobDetailLoading(false);
+    }
+  }
+
+  async function handleMarkApplied(job: JobPost) {
+    try {
+      await apiRequest(`/api/jobs/${job.id}/applied`, { method: "POST" });
+      await loadJobs(sort);
+      if (selectedJob?.id === job.id) {
+        await loadJobThread(job.id);
+      }
+      setNotice({ type: "success", text: "Job saved to your previously applied section." });
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    }
+  }
+
+  async function handleJobComment(job: JobPost) {
+    const draft = jobCommentDraft.trim();
+    if (!draft) {
+      return;
+    }
+
+    try {
+      await apiRequest(`/api/jobs/${job.id}/comments`, {
+        method: "POST",
+        body: { body: draft },
+      });
+      setJobCommentDraft("");
+      await loadJobThread(job.id);
+      await loadJobs(sort);
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    }
+  }
+
+  function openJobThread(job: JobPost) {
+    if (job.sourceKind !== "hirer") {
+      return;
+    }
+
+    loadJobThread(job.id);
+  }
+
+  function handleJobCardKeyDown(event: React.KeyboardEvent<HTMLElement>, job: JobPost) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openJobThread(job);
+    }
+  }
+
+  if (selectedJob) {
+    const similarJobs = getSimilarJobPosts(selectedJob, [...jobs, ...appliedJobs]);
+
+    return (
+      <section className="forum-thread-page">
+        <button className="thread-back-button" type="button" onClick={() => setSelectedJob(null)}>
+          Back to jobs
+        </button>
+
+        {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+        {jobDetailLoading && <p className="empty-state">Loading job details...</p>}
+
+        <div className="forum-thread-layout">
+          <article className="forum-post thread-post job-thread-post">
+            <div className="forum-post-header">
+              <div>
+                <span>{selectedJob.hirer.displayName || selectedJob.companyName}</span>
+                <time>{formatDate(selectedJob.createdAt)}</time>
+              </div>
+              <div className="post-actions">
+                {selectedJob.expiresAt && (
+                  <span className={selectedJob.isExpired ? "resolved-badge danger" : "resolved-badge"}>
+                    {selectedJob.isExpired ? "Expired" : `Expires ${formatDate(selectedJob.expiresAt)}`}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="job-thread-heading">
+              {selectedJob.hirer.profileImageDataUrl && <img src={selectedJob.hirer.profileImageDataUrl} alt="" />}
+              <div>
+                <h2>{selectedJob.title}</h2>
+                <p className="job-company">
+                  {selectedJob.companyName}
+                  {selectedJob.location ? ` · ${selectedJob.location}` : ""}
+                  {selectedJob.employmentType ? ` · ${selectedJob.employmentType}` : ""}
+                </p>
+                {selectedJob.hirer.headline && <strong>{selectedJob.hirer.headline}</strong>}
+              </div>
+            </div>
+
+            {selectedJob.hirer.message && <p className="hirer-message">{selectedJob.hirer.message}</p>}
+            <p>{selectedJob.description}</p>
+
+            <div className="job-thread-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={selectedJob.applicantHasApplied}
+                onClick={() => handleMarkApplied(selectedJob)}
+              >
+                {selectedJob.applicantHasApplied ? "Applied" : "Mark applied"}
+              </button>
+              <button className="primary-button" type="button" onClick={() => handleOpenJob(selectedJob)}>
+                Open application
+              </button>
+            </div>
+
+            <div className="comments-list">
+              {selectedJob.comments.length === 0 && <p className="empty-state">No questions yet. Start the thread below.</p>}
+              {selectedJob.comments.map((comment) => (
+                <div className="comment" key={comment.id}>
+                  <div>
+                    <strong>{comment.authorName}</strong>
+                    <time>{formatDate(comment.createdAt)}</time>
+                  </div>
+                  <p>{comment.body}</p>
+                </div>
+              ))}
+            </div>
+            <div className="comment-box">
+              <input value={jobCommentDraft} onChange={(event) => setJobCommentDraft(event.target.value)} placeholder="Ask a question about this job" />
+              <button className="secondary-button" type="button" onClick={() => handleJobComment(selectedJob)}>
+                Comment
+              </button>
+            </div>
+          </article>
+
+          <aside className="similar-posts-panel">
+            <span className="card-label">Similar jobs</span>
+            {similarJobs.length === 0 && <p>No similar jobs yet.</p>}
+            {similarJobs.map((job) => (
+              <button className="similar-post" type="button" key={job.id} onClick={() => loadJobThread(job.id)}>
+                <strong>{job.title}</strong>
+                <span>{job.companyName}</span>
+                <em>
+                  {job.commentCount} {job.commentCount === 1 ? "comment" : "comments"}
+                </em>
+              </button>
+            ))}
+          </aside>
+        </div>
+      </section>
+    );
   }
 
   return (
@@ -1190,10 +1367,23 @@ function ApplicantJobsPanel() {
       )}
       <div className="jobs-list">
         {jobs.map((job) => (
-          <article className="job-card" key={job.id}>
+          <article
+            className={job.sourceKind === "hirer" ? "job-card job-feed-card clickable" : "job-card"}
+            key={job.id}
+            role={job.sourceKind === "hirer" ? "button" : undefined}
+            tabIndex={job.sourceKind === "hirer" ? 0 : undefined}
+            onClick={() => openJobThread(job)}
+            onKeyDown={(event) => handleJobCardKeyDown(event, job)}
+          >
             <div className="job-card-main">
               <div className="job-source-row">
                 <span>{job.sourceKind === "hirer" ? "Hirer post" : "API scrape"}</span>
+                {job.expiresAt && <span className="job-status-pill">Expires {formatDate(job.expiresAt)}</span>}
+                {job.sourceKind === "hirer" && (
+                  <span className="job-status-pill">
+                    {job.commentCount} {job.commentCount === 1 ? "comment" : "comments"}
+                  </span>
+                )}
                 <time>{formatDate(job.createdAt)}</time>
               </div>
               <h3>{job.title}</h3>
@@ -1202,7 +1392,7 @@ function ApplicantJobsPanel() {
                 {job.location ? ` · ${job.location}` : ""}
                 {job.employmentType ? ` · ${job.employmentType}` : ""}
               </p>
-              <p>{job.description}</p>
+              <p>{job.sourceKind === "hirer" ? truncateText(job.description, 220) : job.description}</p>
               {job.hirer.message && <p className="hirer-message">{job.hirer.message}</p>}
             </div>
             <div className="job-card-side">
@@ -1210,9 +1400,172 @@ function ApplicantJobsPanel() {
               <strong>{job.hirer.displayName || job.companyName}</strong>
               {job.hirer.headline && <span>{job.hirer.headline}</span>}
               <span>{job.clickCount} clicks</span>
-              <button className="primary-button full-width" type="button" onClick={() => handleOpenJob(job)}>
+              <button
+                className="secondary-button full-width"
+                type="button"
+                disabled={job.applicantHasApplied}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleMarkApplied(job);
+                }}
+              >
+                {job.applicantHasApplied ? "Applied" : "Mark applied"}
+              </button>
+              <button
+                className="primary-button full-width"
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleOpenJob(job);
+                }}
+              >
                 Open application
               </button>
+            </div>
+          </article>
+        ))}
+      </div>
+      <div className="jobs-toolbar secondary-toolbar">
+        <div>
+          <span className="card-label">Previously applied</span>
+          <h2>Your saved application history.</h2>
+        </div>
+      </div>
+      {appliedJobs.length === 0 && <p className="empty-state">Jobs you mark as applied will stay here, even after they expire.</p>}
+      <div className="jobs-list">
+        {appliedJobs.map((job) => (
+          <article
+            className={`job-card ${job.sourceKind === "hirer" ? "job-feed-card clickable" : ""} ${job.isExpired ? "expired-job-card" : ""}`}
+            key={job.id}
+            role={job.sourceKind === "hirer" ? "button" : undefined}
+            tabIndex={job.sourceKind === "hirer" ? 0 : undefined}
+            onClick={() => openJobThread(job)}
+            onKeyDown={(event) => handleJobCardKeyDown(event, job)}
+          >
+            <div className="job-card-main">
+              <div className="job-source-row">
+                <span>{job.sourceKind === "hirer" ? "Hirer post" : "API scrape"}</span>
+                {job.isExpired && <span className="job-status-pill expired">Expired</span>}
+                {job.expiresAt && <span className="job-status-pill">Expires {formatDate(job.expiresAt)}</span>}
+                {job.sourceKind === "hirer" && (
+                  <span className="job-status-pill">
+                    {job.commentCount} {job.commentCount === 1 ? "comment" : "comments"}
+                  </span>
+                )}
+                <time>{formatDate(job.createdAt)}</time>
+              </div>
+              <h3>{job.title}</h3>
+              <p className="job-company">
+                {job.companyName}
+                {job.location ? ` · ${job.location}` : ""}
+                {job.employmentType ? ` · ${job.employmentType}` : ""}
+              </p>
+              <p>{job.sourceKind === "hirer" ? truncateText(job.description, 220) : job.description}</p>
+            </div>
+            <div className="job-card-side">
+              {job.hirer.profileImageDataUrl && <img src={job.hirer.profileImageDataUrl} alt="" />}
+              <strong>{job.hirer.displayName || job.companyName}</strong>
+              {job.hirer.headline && <span>{job.hirer.headline}</span>}
+              <span>{job.clickCount} clicks</span>
+              <button
+                className="primary-button full-width"
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleOpenJob(job);
+                }}
+              >
+                Open application
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ApplicantHirerSearchPanel() {
+  const [name, setName] = useState("");
+  const [hirers, setHirers] = useState<HirerProfile[]>([]);
+  const [notice, setNotice] = useState<Notice>(null);
+  const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+
+  async function handleSearch(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const exactName = name.trim();
+    if (!exactName) {
+      return;
+    }
+
+    setLoading(true);
+    setNotice(null);
+    setSearched(true);
+
+    try {
+      const result = await apiRequest(`/api/hirers/search?name=${encodeURIComponent(exactName)}`);
+      setHirers(result.hirers ?? []);
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+      setHirers([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <section className="jobs-panel">
+      <div className="jobs-toolbar">
+        <div>
+          <span className="card-label">Hirer search</span>
+          <h2>Find registered hirer profiles.</h2>
+        </div>
+      </div>
+
+      <article className="portal-card">
+        <form className="auth-form hirer-search-form" onSubmit={handleSearch}>
+          <label>
+            Exact hirer name
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Type the hirer's profile name exactly"
+              required
+            />
+          </label>
+          <button className="primary-button" type="submit" disabled={loading}>
+            {loading ? "Searching..." : "Search hirers"}
+          </button>
+        </form>
+      </article>
+
+      {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+      {searched && !loading && hirers.length === 0 && <p className="empty-state">No registered hirer profile found for that exact name.</p>}
+
+      <div className="hirer-search-results">
+        {hirers.map((hirer) => (
+          <article className="hirer-result-card" key={hirer.id}>
+            {hirer.profileImageDataUrl && <img src={hirer.profileImageDataUrl} alt="" />}
+            <div>
+              <h3>{hirer.displayName}</h3>
+              {hirer.headline && <strong>{hirer.headline}</strong>}
+              {hirer.companyName && <span>{hirer.companyName}</span>}
+              {hirer.message && <p>{hirer.message}</p>}
+              {hirer.companyInfo && <p>{hirer.companyInfo}</p>}
+              <div className="hirer-contact-row">
+                {hirer.contactEmail && <a href={`mailto:${hirer.contactEmail}`}>{hirer.contactEmail}</a>}
+                {hirer.websiteUrl && (
+                  <a href={hirer.websiteUrl} target="_blank" rel="noreferrer">
+                    Website
+                  </a>
+                )}
+                {hirer.linkedinUrl && (
+                  <a href={hirer.linkedinUrl} target="_blank" rel="noreferrer">
+                    LinkedIn
+                  </a>
+                )}
+              </div>
             </div>
           </article>
         ))}
@@ -1797,6 +2150,7 @@ function HirerJobsPanel({ user }: { user: CurrentUser }) {
     employmentType: "",
     applicationUrl: "",
     description: "",
+    expiresAt: "",
   };
   const [jobs, setJobs] = useState<JobPost[]>([]);
   const [form, setForm] = useState(emptyJob);
@@ -1834,6 +2188,7 @@ function HirerJobsPanel({ user }: { user: CurrentUser }) {
       employmentType: job.employmentType ?? "",
       applicationUrl: job.applicationUrl,
       description: job.description,
+      expiresAt: toDateInputValue(job.expiresAt),
     });
     setNotice(null);
   }
@@ -1850,9 +2205,13 @@ function HirerJobsPanel({ user }: { user: CurrentUser }) {
 
     try {
       const path = editingJobId ? `/api/hirer/jobs/${editingJobId}` : "/api/hirer/jobs";
+      const jobBody = {
+        ...form,
+        expiresAt: form.expiresAt ? dateInputToEndOfDayIso(form.expiresAt) : "",
+      };
       await apiRequest(path, {
         method: editingJobId ? "PATCH" : "POST",
-        body: form,
+        body: jobBody,
       });
       setNotice({ type: "success", text: editingJobId ? "Job post updated." : "Job post published." });
       resetForm();
@@ -1877,6 +2236,38 @@ function HirerJobsPanel({ user }: { user: CurrentUser }) {
     } catch (error) {
       setNotice({ type: "error", text: getErrorMessage(error) });
     }
+  }
+
+  const activeJobs = jobs.filter((job) => !job.isExpired);
+  const archivedJobs = jobs.filter((job) => job.isExpired);
+
+  function renderHirerJob(job: JobPost) {
+    return (
+      <article className={`job-card compact-job-card ${job.isExpired ? "expired-job-card" : ""}`} key={job.id}>
+        <div className="job-card-main">
+          <div className="job-source-row">
+            <span>{job.clickCount} clicks</span>
+            {job.isExpired && <span className="job-status-pill expired">Archived</span>}
+            {job.expiresAt && <span className="job-status-pill">Expires {formatDate(job.expiresAt)}</span>}
+            <time>{formatDate(job.createdAt)}</time>
+          </div>
+          <h3>{job.title}</h3>
+          <p className="job-company">
+            {job.companyName}
+            {job.location ? ` · ${job.location}` : ""}
+          </p>
+          <p>{job.description}</p>
+        </div>
+        <div className="post-actions">
+          <button className="mini-action" type="button" onClick={() => startEditingJob(job)}>
+            Edit
+          </button>
+          <button className="mini-action danger" type="button" onClick={() => handleDelete(job)}>
+            Delete
+          </button>
+        </div>
+      </article>
+    );
   }
 
   return (
@@ -1915,6 +2306,10 @@ function HirerJobsPanel({ user }: { user: CurrentUser }) {
               Employment type
               <input value={form.employmentType} onChange={(event) => updateForm("employmentType", event.target.value)} />
             </label>
+            <label>
+              Expire date
+              <input type="date" value={form.expiresAt} onChange={(event) => updateForm("expiresAt", event.target.value)} />
+            </label>
           </div>
           <label>
             Description
@@ -1936,30 +2331,18 @@ function HirerJobsPanel({ user }: { user: CurrentUser }) {
       <div className="forum-feed">
         {loading && <p className="empty-state">Loading your postings...</p>}
         {!loading && jobs.length === 0 && <p className="empty-state">No job postings yet.</p>}
-        {jobs.map((job) => (
-          <article className="job-card compact-job-card" key={job.id}>
-            <div className="job-card-main">
-              <div className="job-source-row">
-                <span>{job.clickCount} clicks</span>
-                <time>{formatDate(job.createdAt)}</time>
-              </div>
-              <h3>{job.title}</h3>
-              <p className="job-company">
-                {job.companyName}
-                {job.location ? ` · ${job.location}` : ""}
-              </p>
-              <p>{job.description}</p>
-            </div>
-            <div className="post-actions">
-              <button className="mini-action" type="button" onClick={() => startEditingJob(job)}>
-                Edit
-              </button>
-              <button className="mini-action danger" type="button" onClick={() => handleDelete(job)}>
-                Delete
-              </button>
-            </div>
-          </article>
-        ))}
+        {activeJobs.length > 0 && (
+          <>
+            <div className="section-kicker">Active postings</div>
+            {activeJobs.map(renderHirerJob)}
+          </>
+        )}
+        {archivedJobs.length > 0 && (
+          <>
+            <div className="section-kicker">Archives</div>
+            {archivedJobs.map(renderHirerJob)}
+          </>
+        )}
       </div>
     </section>
   );
@@ -2225,12 +2608,13 @@ function HirerAuth({
         method: "POST",
         body: { companyName, email },
       });
-      setCompanySuggestions(result.suggestions ?? []);
-      setCompanyLookupMessage(result.message ?? "Company lookup finished.");
-      if ((result.suggestions ?? []).length === 0) {
+      const suggestions = result.suggestions ?? [];
+      setCompanySuggestions(suggestions);
+      setCompanyLookupMessage(suggestions.length > 0 ? "Found" : "Verify Company Later");
+      if (suggestions.length === 0) {
         setNotice({
           type: "success",
-          text: "No confident existing company match found. You can create it and verify with a business email.",
+          text: "Verify Company Later",
         });
       }
     } catch (error) {
@@ -2428,7 +2812,7 @@ function HirerAuth({
             <button className="secondary-button full-width" type="button" disabled={checkingCompany || !companyName || !email} onClick={handleCompanyLookup}>
               {checkingCompany ? "Checking company..." : "Check company with AI"}
             </button>
-            {companyLookupMessage && <p className="form-note">{companyLookupMessage}</p>}
+            {companyLookupMessage === "Found" && <p className="form-note">Found</p>}
             {companySuggestions.length > 0 && (
               <div className="company-suggestion-list">
                 {companySuggestions.map((suggestion) => (
@@ -2447,7 +2831,7 @@ function HirerAuth({
                       type="button"
                       onClick={() => {
                         setCompanyName(suggestion.name);
-                        setCompanyLookupMessage(`Selected ${suggestion.name}. Verify with a business email for this company.`);
+                        setCompanyLookupMessage("Found");
                       }}
                     >
                       Select company
@@ -2465,9 +2849,6 @@ function HirerAuth({
                 onChange={(event) => setCompanyVerificationEmail(event.target.value)}
               />
             </label>
-            <p className="form-note">
-              If no match is found, Dinero will create the company as pending and verify it with this business email.
-            </p>
           </>
         )}
         {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
@@ -2673,6 +3054,18 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+function toDateInputValue(value: string | null) {
+  if (!value) {
+    return "";
+  }
+
+  return value.slice(0, 10);
+}
+
+function dateInputToEndOfDayIso(value: string) {
+  return new Date(`${value}T23:59:59`).toISOString();
+}
+
 function truncateText(value: string, maxLength: number) {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (normalized.length <= maxLength) {
@@ -2696,6 +3089,22 @@ function getSimilarForumPosts(selectedPost: ForumPost, posts: ForumPost[]) {
     .sort((a, b) => b.score - a.score || new Date(b.post.createdAt).getTime() - new Date(a.post.createdAt).getTime())
     .slice(0, 5)
     .map(({ post }) => post);
+}
+
+function getSimilarJobPosts(selectedJob: JobPost, jobs: JobPost[]) {
+  const selectedKeywords = forumKeywords(`${selectedJob.title} ${selectedJob.companyName} ${selectedJob.description}`);
+
+  return jobs
+    .filter((job, index, allJobs) => job.id !== selectedJob.id && job.sourceKind === "hirer" && allJobs.findIndex((item) => item.id === job.id) === index)
+    .map((job) => {
+      const keywords = forumKeywords(`${job.title} ${job.companyName} ${job.description}`);
+      const score = keywords.filter((keyword) => selectedKeywords.includes(keyword)).length;
+      return { job, score };
+    })
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score || new Date(b.job.createdAt).getTime() - new Date(a.job.createdAt).getTime())
+    .slice(0, 5)
+    .map(({ job }) => job);
 }
 
 function forumKeywords(value: string) {
