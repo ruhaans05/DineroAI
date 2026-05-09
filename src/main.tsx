@@ -1,0 +1,3203 @@
+import React, { useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
+import heroImage from "./assets/hero-dinero.png";
+import "./styles.css";
+
+type View = "home" | "about" | "contact" | "applicant" | "hirer";
+type AuthMode = "signin" | "signup";
+type PortalTab = "resume" | "jobs" | "hirers" | "forum";
+type HirerTab = "profile" | "jobs";
+type JobSort = "popular" | "recent";
+type Notice = { type: "success" | "error"; text: string } | null;
+type AuthNotice = { view: "applicant" | "hirer"; notice: NonNullable<Notice> } | null;
+type CurrentUser = {
+  id: string;
+  email: string;
+  fullName: string | null;
+  role: "applicant" | "hirer" | "admin";
+  emailVerified: boolean;
+};
+type ForumComment = {
+  id: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  authorUserId: string;
+  authorName: string;
+  authorEmail: string;
+};
+type ForumPost = {
+  id: string;
+  subject: string;
+  body: string;
+  isResolved: boolean;
+  createdAt: string;
+  updatedAt: string;
+  editedAt: string | null;
+  authorUserId: string;
+  authorName: string;
+  authorEmail: string;
+  comments: ForumComment[];
+};
+type HirerProfile = {
+  id: string;
+  userId: string;
+  displayName: string | null;
+  profileImageDataUrl: string | null;
+  headline: string | null;
+  message: string | null;
+  companyName: string | null;
+  companyInfo: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  websiteUrl: string | null;
+  linkedinUrl: string | null;
+};
+type JobPost = {
+  id: string;
+  hirerUserId: string | null;
+  title: string;
+  companyName: string;
+  location: string | null;
+  employmentType: string | null;
+  applicationUrl: string;
+  description: string;
+  sourceKind: "hirer" | "scraped_api";
+  clickCount: number;
+  isActive: boolean;
+  expiresAt: string | null;
+  isExpired: boolean;
+  applicantHasApplied: boolean;
+  commentCount: number;
+  comments: ForumComment[];
+  createdAt: string;
+  updatedAt: string;
+  hirer: {
+    displayName: string | null;
+    profileImageDataUrl: string | null;
+    headline: string | null;
+    message: string | null;
+    contactEmail: string | null;
+  };
+};
+type ResumeMatchScan = {
+  id: string;
+  createdAt: string;
+  resumeFileName: string;
+  jobPostId: string | null;
+  jobTitle: string | null;
+  jobDescriptionUrl: string | null;
+  recruiterEmail: string | null;
+  recruiterOutreachStarter: string | null;
+  provider: string;
+  modelVersion: string;
+  status: "needs_job_description" | "scored";
+  interviewProbability: number | null;
+  keywordMatchScore: number | null;
+  confidence: number;
+  roleLevelFit: "too_high" | "good_fit" | "too_low" | "unclear";
+  qualificationsMet: "yes" | "no" | "unclear";
+  qualificationSummary: string;
+  missingQualifications: string[];
+  summary: string;
+  summaryBullets: string[];
+  matchedSignals: string[];
+  missingSignals: string[];
+  recommendations: string[];
+  resumeSha256: string;
+};
+type CompanySuggestion = {
+  name: string;
+  domain: string | null;
+  websiteUrl: string | null;
+  confidence: number;
+  reason: string;
+};
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+const OUTREACH_FALLBACK_STARTER = "Hi, I'm excited about this role and believe my background";
+const blockedOutreachLanguage = [/fuck/i, /shit/i, /bitch/i, /asshole/i, /kill/i, /hate/i];
+
+function App() {
+  const [view, setView] = useState<View>("home");
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authNotice, setAuthNotice] = useState<AuthNotice>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const verifyToken = params.get("verifyToken");
+    const verificationRole = params.get("role");
+    const fallbackVerifyView = verificationRole === "hirer" ? "hirer" : "applicant";
+
+    if (verifyToken) {
+      verifyEmailFromLink(verifyToken)
+        .then((user) => {
+          const targetView = user?.role === "hirer" ? "hirer" : fallbackVerifyView;
+          setCurrentUser(null);
+          setView(targetView);
+          setAuthNotice({
+            view: targetView,
+            notice: {
+              type: "success",
+              text: "Email confirmed. You can sign in now.",
+            },
+          });
+        })
+        .catch((error) => {
+          setCurrentUser(null);
+          setView(fallbackVerifyView);
+          setAuthNotice({
+            view: fallbackVerifyView,
+            notice: {
+              type: "error",
+              text: getErrorMessage(error),
+            },
+          });
+        })
+        .finally(() => {
+          window.history.replaceState({}, "", window.location.pathname);
+          setAuthChecked(true);
+        });
+      return;
+    }
+
+    refreshCurrentUser()
+      .then((user) => {
+        setCurrentUser(user);
+        if (user?.role === "applicant") {
+          setView("applicant");
+        } else if (user?.role === "hirer") {
+          setView("hirer");
+        }
+      })
+      .catch(() => setCurrentUser(null))
+      .finally(() => setAuthChecked(true));
+  }, []);
+
+  async function handleLogout() {
+    await apiRequest("/api/logout", { method: "POST" });
+    setCurrentUser(null);
+    setView("home");
+  }
+
+  return (
+    <div className="app-shell">
+      <Header view={view} currentUser={currentUser} onNavigate={setView} onLogout={handleLogout} />
+      {!authChecked && <div className="session-loading">Checking session...</div>}
+      {view === "home" && <LandingPage onNavigate={setView} />}
+      {view === "about" && <AboutPage onNavigate={setView} />}
+      {view === "contact" && <ContactPage />}
+      {view === "applicant" && (
+        <ApplicantAuth
+          currentUser={currentUser}
+          initialNotice={authNotice?.view === "applicant" ? authNotice.notice : null}
+          onAuthenticated={setCurrentUser}
+          onNavigate={setView}
+          onLogout={handleLogout}
+          onNoticeConsumed={() => setAuthNotice(null)}
+        />
+      )}
+      {view === "hirer" && (
+        <HirerAuth
+          currentUser={currentUser}
+          initialNotice={authNotice?.view === "hirer" ? authNotice.notice : null}
+          onAuthenticated={setCurrentUser}
+          onNavigate={setView}
+          onLogout={handleLogout}
+          onNoticeConsumed={() => setAuthNotice(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function Header({
+  view,
+  currentUser,
+  onNavigate,
+  onLogout,
+}: {
+  view: View;
+  currentUser: CurrentUser | null;
+  onNavigate: (view: View) => void;
+  onLogout: () => void;
+}) {
+  return (
+    <header className="site-header">
+      <button className="brand" onClick={() => onNavigate("home")} aria-label="Go to Dinero home">
+        <span className="brand-mark">$</span>
+        <span>Dinero</span>
+      </button>
+      <nav aria-label="Primary navigation">
+        <button className={view === "home" ? "nav-link active" : "nav-link"} onClick={() => onNavigate("home")}>
+          Home
+        </button>
+        <button className={view === "about" ? "nav-link active" : "nav-link"} onClick={() => onNavigate("about")}>
+          About
+        </button>
+        <button
+          className={view === "contact" ? "nav-link active" : "nav-link"}
+          onClick={() => onNavigate("contact")}
+        >
+          Contact
+        </button>
+        <button
+          className={view === "applicant" ? "nav-link active" : "nav-link"}
+          onClick={() => onNavigate("applicant")}
+        >
+          Applicants
+        </button>
+        <button className={view === "hirer" ? "nav-link active" : "nav-link"} onClick={() => onNavigate("hirer")}>
+          Hirers
+        </button>
+      </nav>
+      {currentUser && (
+        <div className="session-pill">
+          <span>{currentUser.email}</span>
+          <button onClick={onLogout} type="button">
+            Log out
+          </button>
+        </div>
+      )}
+    </header>
+  );
+}
+
+function LandingPage({ onNavigate }: { onNavigate: (view: View) => void }) {
+  return (
+    <main>
+      <section className="hero-section">
+        <div className="hero-copy">
+          <p className="eyebrow">Resume-to-role intelligence</p>
+          <h1>Find the jobs most likely to pay off.</h1>
+          <p className="hero-text">
+            Dinero compares a resume against real job descriptions, estimates interview likelihood, and shows the
+            changes that can raise a candidate's chance before they apply.
+          </p>
+          <div className="hero-actions">
+            <button className="primary-button" onClick={() => onNavigate("applicant")}>
+              Applicant sign in
+            </button>
+            <button className="secondary-button" onClick={() => onNavigate("hirer")}>
+              Hirer sign in
+            </button>
+          </div>
+          <div className="metric-strip" aria-label="Dinero product highlights">
+            <div>
+              <strong>72%</strong>
+              <span>example interview fit</span>
+            </div>
+            <div>
+              <strong>3 min</strong>
+              <span>resume scan flow</span>
+            </div>
+            <div>
+              <strong>CS/SWE</strong>
+              <span>first role focus</span>
+            </div>
+          </div>
+        </div>
+        <div className="hero-visual" aria-hidden="true">
+          <img src={heroImage} alt="" />
+        </div>
+      </section>
+
+      <section className="audience-section" aria-labelledby="audience-title">
+        <div className="section-heading">
+          <p className="eyebrow">Two sides, better signal</p>
+          <h2 id="audience-title">Built for applicants and hiring teams.</h2>
+        </div>
+        <div className="audience-grid">
+          <article className="audience-card applicant-card">
+            <span className="card-label">For applicants</span>
+            <h3>Apply where your odds are strongest.</h3>
+            <p>
+              Upload a resume, pick target roles, and see an interview likelihood score with the exact skills,
+              projects, and wording that should be strengthened.
+            </p>
+            <button className="text-button" onClick={() => onNavigate("applicant")}>
+              Continue as applicant
+            </button>
+          </article>
+          <article className="audience-card hirer-card">
+            <span className="card-label">For hirers</span>
+            <h3>Review fit with clearer context.</h3>
+            <p>
+              Hiring teams can connect roles, review Dinero's predictions, and send feedback when a match score is
+              useful, too generous, or too conservative.
+            </p>
+            <button className="text-button" onClick={() => onNavigate("hirer")}>
+              Continue as hirer
+            </button>
+          </article>
+        </div>
+      </section>
+
+      <section className="how-section" aria-labelledby="how-title">
+        <div className="section-heading">
+          <p className="eyebrow">How Dinero works</p>
+          <h2 id="how-title">From resume to higher-confidence applications.</h2>
+        </div>
+        <div className="steps-grid">
+          {[
+            ["Scan", "Parse the resume and the job description into skills, evidence, seniority, and ATS signals."],
+            ["Score", "Estimate the applicant's interview chance for that exact role with a clear numeric score."],
+            ["Improve", "Recommend specific resume updates that can raise the match before the application is sent."],
+            ["Learn", "Use opt-in applicant and hiring-team outcomes to calibrate future predictions over time."],
+          ].map(([title, body], index) => (
+            <article className="step-card" key={title}>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <h3>{title}</h3>
+              <p>{body}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function AboutPage({ onNavigate }: { onNavigate: (view: View) => void }) {
+  return (
+    <main className="content-page">
+      <section className="about-hero">
+        <div>
+          <p className="eyebrow">About Dinero</p>
+          <h1>Applications should feel less random.</h1>
+          <p>
+            Dinero is being built for the moment when a candidate has a resume, a role they want, and no clear answer
+            to the question that matters most: is this worth my time, and what would make me more competitive?
+          </p>
+          <div className="hero-actions">
+            <button className="primary-button" onClick={() => onNavigate("applicant")}>
+              Start as applicant
+            </button>
+            <button className="secondary-button" onClick={() => onNavigate("hirer")}>
+              Start as hirer
+            </button>
+          </div>
+        </div>
+        <div className="about-score-panel" aria-label="Dinero score preview">
+          <span>Interview fit</span>
+          <strong>78%</strong>
+          <p>Resume evidence aligns with role scope, core skills, and hiring signal.</p>
+          <div>
+            <label>Resume match</label>
+            <progress value="78" max="100" />
+          </div>
+          <div>
+            <label>Missing keywords</label>
+            <progress value="28" max="100" />
+          </div>
+          <div>
+            <label>Project proof</label>
+            <progress value="66" max="100" />
+          </div>
+        </div>
+      </section>
+
+      <section className="about-band" aria-labelledby="about-promise">
+        <div className="section-heading">
+          <p className="eyebrow">The promise</p>
+          <h2 id="about-promise">Better choices before the application goes out.</h2>
+        </div>
+        <div className="value-grid">
+          {[
+            [
+              "Know where to focus",
+              "Dinero helps applicants compare roles by actual fit instead of sending the same resume everywhere.",
+            ],
+            [
+              "Improve with specifics",
+              "Feedback is tied to the job description, so resume edits become practical: skills, phrasing, projects, and proof.",
+            ],
+            [
+              "Learn from outcomes",
+              "As users opt in and report interviews, the score can become sharper and more honest over time.",
+            ],
+          ].map(([title, body]) => (
+            <article className="value-card" key={title}>
+              <h3>{title}</h3>
+              <p>{body}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="about-band split-band" aria-labelledby="why-teams">
+        <div>
+          <p className="eyebrow">For hiring teams</p>
+          <h2 id="why-teams">Cleaner context, fewer noisy matches.</h2>
+        </div>
+        <p>
+          Hirers can see why Dinero thinks a candidate fits a role, then give feedback when the model is right or
+          wrong. That closes the loop between resume signal and real hiring judgment.
+        </p>
+      </section>
+    </main>
+  );
+}
+
+function ContactPage() {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [audience, setAudience] = useState("applicant");
+  const [topic, setTopic] = useState("");
+  const [message, setMessage] = useState("");
+  const [notice, setNotice] = useState<Notice>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest("/api/contact", {
+        method: "POST",
+        body: { name, email, audience, topic, message },
+      });
+      setNotice({ type: "success", text: result.message ?? "Your message was sent." });
+      setName("");
+      setEmail("");
+      setAudience("applicant");
+      setTopic("");
+      setMessage("");
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <main className="contact-page">
+      <section className="contact-intro">
+        <p className="eyebrow">Contact Dinero</p>
+        <h1>Questions, concerns, or early access ideas.</h1>
+        <p>
+          Send a note to the Dinero team. Applicant feedback, hiring-team questions, bug reports, and partnership ideas
+          all land in the same inbox so nothing gets lost.
+        </p>
+        <div className="contact-direct">
+          <span>Email inbox</span>
+          <strong>dinerobusinessofficial@gmail.com</strong>
+        </div>
+      </section>
+
+      <section className="contact-panel" aria-label="Contact form">
+        <form className="auth-form" onSubmit={handleSubmit}>
+          <div className="form-grid">
+            <label>
+              Name
+              <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" required />
+            </label>
+            <label>
+              Email
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@example.com"
+                required
+              />
+            </label>
+          </div>
+          <label>
+            I am a
+            <select value={audience} onChange={(event) => setAudience(event.target.value)}>
+              <option value="applicant">Applicant</option>
+              <option value="hirer">Hirer</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label>
+            Topic
+            <input
+              value={topic}
+              onChange={(event) => setTopic(event.target.value)}
+              placeholder="What should we help with?"
+              minLength={3}
+              required
+            />
+          </label>
+          <label>
+            Question or concern
+            <textarea
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              placeholder="Share the details here."
+              rows={7}
+              minLength={10}
+              required
+            />
+          </label>
+          <p className="form-note">Please write at least 10 characters so the team has enough context to help.</p>
+          {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+          <button className="primary-button full-width" type="submit" disabled={loading}>
+            {loading ? "Sending..." : "Send message"}
+          </button>
+        </form>
+      </section>
+    </main>
+  );
+}
+
+function ApplicantPortal({
+  user,
+  onNavigate,
+  onLogout,
+}: {
+  user: CurrentUser;
+  onNavigate: (view: View) => void;
+  onLogout: () => void;
+}) {
+  const [activeTab, setActiveTab] = useState<PortalTab>("resume");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  return (
+    <main className="portal-page">
+      <div className="portal-topbar">
+        <button className="secondary-button" type="button" onClick={() => onNavigate("home")}>
+          Home
+        </button>
+        <div>
+          <span>Applicant portal</span>
+          <strong>{user.fullName || user.email}</strong>
+        </div>
+        <button className="secondary-button" type="button" onClick={() => setSettingsOpen(true)}>
+          Settings
+        </button>
+      </div>
+
+      <section className="portal-hero">
+        <div>
+          <p className="eyebrow">Welcome back</p>
+          <h1>Run the application workflow from one place.</h1>
+          <p>
+            Upload a resume for the future ATS scan, ask questions in the global forum, and keep your account controls
+            close without leaving the portal.
+          </p>
+        </div>
+        <div className="portal-status-card">
+          <span>Next action</span>
+          <strong>Upload resume</strong>
+          <p>PDF intake is ready. Resume parsing and ATS scoring will connect here next.</p>
+        </div>
+      </section>
+
+      <div className="portal-tabs" aria-label="Applicant portal sections">
+        <button className={activeTab === "resume" ? "selected" : ""} onClick={() => setActiveTab("resume")} type="button">
+          Resume scan
+        </button>
+        <button className={activeTab === "jobs" ? "selected" : ""} onClick={() => setActiveTab("jobs")} type="button">
+          Jobs
+        </button>
+        <button className={activeTab === "hirers" ? "selected" : ""} onClick={() => setActiveTab("hirers")} type="button">
+          Hirers
+        </button>
+        <button className={activeTab === "forum" ? "selected" : ""} onClick={() => setActiveTab("forum")} type="button">
+          Global forum
+        </button>
+      </div>
+
+      {activeTab === "resume" && <ResumeUploadPanel />}
+      {activeTab === "jobs" && <ApplicantJobsPanel />}
+      {activeTab === "hirers" && <ApplicantHirerSearchPanel />}
+      {activeTab === "forum" && <ForumPanel currentUser={user} />}
+
+      {settingsOpen && (
+        <div className="settings-backdrop" role="presentation" onClick={() => setSettingsOpen(false)}>
+          <aside className="settings-panel" aria-label="Applicant settings" onClick={(event) => event.stopPropagation()}>
+            <div className="settings-header">
+              <div>
+                <p className="eyebrow">Settings</p>
+                <h2>Account controls</h2>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setSettingsOpen(false)} aria-label="Close settings">
+                x
+              </button>
+            </div>
+            <div className="settings-user">
+              <span>{user.fullName || "Applicant"}</span>
+              <strong>{user.email}</strong>
+            </div>
+            <p className="settings-note">More settings will live here later.</p>
+            <button className="primary-button full-width" type="button" onClick={onLogout}>
+              Sign out
+            </button>
+          </aside>
+        </div>
+      )}
+    </main>
+  );
+}
+
+function ResumeUploadPanel() {
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [jobs, setJobs] = useState<JobPost[]>([]);
+  const [selectedJobId, setSelectedJobId] = useState("");
+  const [jobDescription, setJobDescription] = useState("");
+  const [scan, setScan] = useState<ResumeMatchScan | null>(null);
+  const [notice, setNotice] = useState<Notice>(null);
+  const [jobsLoading, setJobsLoading] = useState(true);
+  const [scanning, setScanning] = useState(false);
+  const [scanProgress, setScanProgress] = useState(0);
+  const [scanPhase, setScanPhase] = useState("Waiting for resume");
+  const selectedJob = jobs.find((job) => job.id === selectedJobId) ?? null;
+
+  useEffect(() => {
+    if (!scanning) {
+      return;
+    }
+
+    const phases = ["Reading PDF structure", "Extracting keyword signals", "Comparing role requirements", "Preparing match report"];
+    const interval = window.setInterval(() => {
+      setScanProgress((current) => {
+        const next = Math.min(current + Math.random() * 14 + 5, 94);
+        const phaseIndex = Math.min(Math.floor(next / 25), phases.length - 1);
+        setScanPhase(phases[phaseIndex]);
+        return next;
+      });
+    }, 260);
+
+    return () => window.clearInterval(interval);
+  }, [scanning]);
+
+  useEffect(() => {
+    loadJobsForScan();
+  }, []);
+
+  async function loadJobsForScan() {
+    setJobsLoading(true);
+
+    try {
+      const result = await apiRequest("/api/jobs?sort=recent");
+      setJobs(result.jobs ?? []);
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setJobsLoading(false);
+    }
+  }
+
+  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    setNotice(null);
+
+    if (!file) {
+      setSelectedFile(null);
+      return;
+    }
+
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      setSelectedFile(null);
+      setNotice({ type: "error", text: "Please upload a PDF resume." });
+      event.target.value = "";
+      return;
+    }
+
+    setSelectedFile(file);
+    setScan(null);
+    setNotice({ type: "success", text: "Resume accepted. Add a job description or run the intake scan." });
+  }
+
+  function handleJobSelection(jobId: string) {
+    setSelectedJobId(jobId);
+    setScan(null);
+
+    const selectedJob = jobs.find((job) => job.id === jobId);
+    if (selectedJob) {
+      setJobDescription(selectedJob.description);
+      setNotice({ type: "success", text: `Using ${selectedJob.title} at ${selectedJob.companyName} for this scan.` });
+    }
+  }
+
+  async function handleScan() {
+    if (!selectedFile) {
+      setNotice({ type: "error", text: "Upload a PDF resume before scanning." });
+      return;
+    }
+
+    setScanning(true);
+    setScanProgress(4);
+    setScanPhase("Starting scan");
+    setNotice(null);
+
+    try {
+      const [result] = await Promise.all([
+        apiRequest("/api/resume-match/scan", {
+          method: "POST",
+          body: {
+            resumeFileName: selectedFile.name,
+            resumeDataUrl: await readFileAsDataUrl(selectedFile),
+            jobPostId: selectedJobId,
+            jobDescription,
+          },
+        }),
+        delay(1600),
+      ]);
+      setScanProgress(100);
+      setScanPhase("Match report ready");
+      setScan(result.scan);
+      setNotice({ type: "success", text: "Resume scan completed and stored." });
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      window.setTimeout(() => setScanning(false), 350);
+    }
+  }
+
+  return (
+    <section className="portal-grid scan-workflow-grid">
+      <article className="portal-card upload-card">
+        <span className="card-label">Resume upload</span>
+        <h2>Upload a PDF for the resume match scan.</h2>
+        <p>
+          This uses Dinero's new scan wrapper. The current provider is a local mock, but it already stores structured
+          score output so a real PDF parser/model can plug in next.
+        </p>
+        <label className="file-drop">
+          <input type="file" accept="application/pdf,.pdf" onChange={handleFileChange} />
+          <strong>{selectedFile ? selectedFile.name : "Choose resume PDF"}</strong>
+          <span>{selectedFile ? `${formatFileSize(selectedFile.size)} ready to scan` : "PDF only"}</span>
+        </label>
+        <label className="scan-description-field">
+          Select a Dinero job
+          <select value={selectedJobId} onChange={(event) => handleJobSelection(event.target.value)} disabled={jobsLoading}>
+            <option value="">{jobsLoading ? "Loading jobs..." : "Select below"}</option>
+            {jobs.map((job) => (
+              <option value={job.id} key={job.id}>
+                {job.title} · {job.companyName}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="scan-description-field">
+          Job description
+          <textarea
+            value={jobDescription}
+            onChange={(event) => setJobDescription(event.target.value)}
+            placeholder="Select a job from Dinero or paste a target job description here. This can stay blank for an intake-only scan."
+          />
+        </label>
+        {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+        <button className="primary-button full-width" type="button" disabled={scanning || !selectedFile} onClick={handleScan}>
+          {scanning ? "Scanning..." : "Run scan"}
+        </button>
+        {scanning && <ScanLoadingBar progress={scanProgress} phase={scanPhase} />}
+        {scan?.recruiterEmail && <RecruiterOutreachComposer scan={scan} />}
+      </article>
+
+      <article className="portal-card scan-card">
+        <span className="card-label">Scan result</span>
+        {scan ? (
+          <div className="scan-result-stack">
+            <ResumeScanResult scan={scan} />
+            {scan.jobPostId && selectedJob?.sourceKind === "hirer" && <HirerOutreachComposer job={selectedJob} />}
+          </div>
+        ) : (
+          <ScanEmptyState />
+        )}
+      </article>
+    </section>
+  );
+}
+
+function ScanLoadingBar({ progress, phase }: { progress: number; phase: string }) {
+  return (
+    <div className="scan-loader" aria-label="Resume scan progress">
+      <div className="scan-loader-top">
+        <span>{phase}</span>
+        <strong>{Math.round(progress)}%</strong>
+      </div>
+      <div className="scan-loader-track">
+        <div style={{ width: `${progress}%` }} />
+      </div>
+      <p>Mapping resume evidence against high-impact job keywords.</p>
+    </div>
+  );
+}
+
+function ScanEmptyState() {
+  return (
+    <div className="scan-preview">
+      <div>
+        <strong>Ready</strong>
+        <span>PDF intake wrapper</span>
+      </div>
+      <div>
+        <strong>Optional</strong>
+        <span>Job description match</span>
+      </div>
+      <div>
+        <strong>Next</strong>
+        <span>Real PDF parser/model provider</span>
+      </div>
+    </div>
+  );
+}
+
+function ResumeScanResult({ scan }: { scan: ResumeMatchScan }) {
+  return (
+    <div className="scan-result">
+      <div className="scan-overview">
+        <div className={`score-ring ${getInterviewChanceClass(scan.interviewProbability)}`}>
+          <span>{scan.interviewProbability === null ? "--" : `${Math.round(scan.interviewProbability)}%`}</span>
+          <strong>{scan.status === "scored" ? "Interview chance" : "Needs job description"}</strong>
+        </div>
+        <div className="fit-checks">
+          <div className="fit-check keyword-score">
+            <span>Keyword match</span>
+            <strong>{scan.keywordMatchScore === null ? "Unclear" : `${Math.round(scan.keywordMatchScore)}%`}</strong>
+          </div>
+          <div className={`fit-check ${scan.roleLevelFit}`}>
+            <span>Role level</span>
+            <strong>{formatRoleLevelFit(scan.roleLevelFit)}</strong>
+          </div>
+          <div className={`fit-check qualification-${scan.qualificationsMet}`}>
+            <span>Qualifications met</span>
+            <strong>{formatQualificationsMet(scan.qualificationsMet)}</strong>
+          </div>
+        </div>
+      </div>
+      <ul className="summary-bullets">
+        {getScanSummaryBullets(scan).map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+      <div className="qualification-summary">
+        <strong>Minimum requirements</strong>
+        <span>{scan.missingQualifications.length === 0 && scan.qualificationsMet === "yes" ? "All met" : "No"}</span>
+      </div>
+      {scan.jobTitle && (
+        <div className="scan-meta">
+          <span>{scan.jobTitle}</span>
+        </div>
+      )}
+      <SignalList title="Matched keywords" items={scan.matchedSignals} empty="No role-specific matches yet." />
+      <SignalList title="Missing keywords" items={scan.missingSignals} empty="No missing keywords reported." />
+      {scan.missingQualifications.length > 0 && (
+        <SignalList title="Missing qualifications" items={scan.missingQualifications} empty="No missing minimum qualifications reported." />
+      )}
+      <SignalList title="Recommendations" items={scan.recommendations} empty="No recommendations yet." />
+    </div>
+  );
+}
+
+function getScanSummaryBullets(scan: ResumeMatchScan) {
+  if (scan.summaryBullets?.length) {
+    return scan.summaryBullets.slice(0, 3);
+  }
+
+  return scan.summary
+    .split(/(?<=[.!?])\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
+function getInterviewChanceClass(value: number | null) {
+  if (value === null) {
+    return "chance-unknown";
+  }
+
+  if (value < 30) {
+    return "chance-low";
+  }
+
+  if (value <= 60) {
+    return "chance-medium";
+  }
+
+  return "chance-high";
+}
+
+function RecruiterOutreachComposer({ scan }: { scan: ResumeMatchScan }) {
+  const [message, setMessage] = useState("");
+  const [notice, setNotice] = useState<Notice>(null);
+  const [drafting, setDrafting] = useState(true);
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    const words = (scan.recruiterOutreachStarter || OUTREACH_FALLBACK_STARTER).split(/\s+/).filter(Boolean).slice(0, 10);
+    let nextWordCount = 0;
+    setMessage("");
+    setNotice(null);
+    setDrafting(true);
+
+    const interval = window.setInterval(() => {
+      nextWordCount += 1;
+      setMessage(words.slice(0, nextWordCount).join(" "));
+
+      if (nextWordCount >= words.length) {
+        window.clearInterval(interval);
+        setDrafting(false);
+      }
+    }, 120);
+
+    return () => window.clearInterval(interval);
+  }, [scan.id, scan.recruiterOutreachStarter]);
+
+  async function handleSendRecruiterMessage() {
+    if (hasBlockedOutreachLanguage(message)) {
+      setNotice({ type: "error", text: "Please revise the message before sending. It includes blocked language." });
+      return;
+    }
+
+    if (message.trim().length < 20) {
+      setNotice({ type: "error", text: "Finish the draft with a little more detail before sending." });
+      return;
+    }
+
+    setSending(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest(`/api/resume-match/scans/${scan.id}/recruiter-outreach`, {
+        method: "POST",
+        body: { message },
+      });
+      setNotice({ type: "success", text: result.message ?? "Message sent to the recruiter." });
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="outreach-card recruiter-outreach-card">
+      <div className="outreach-header">
+        <div>
+          <span className="card-label">Recruiter detected</span>
+          <h3>Draft a message to {scan.recruiterEmail}.</h3>
+        </div>
+        <span className="ai-pill">{drafting ? "AI drafting" : "AI starter"}</span>
+      </div>
+      <textarea
+        value={message}
+        onChange={(event) => {
+          setMessage(event.target.value);
+          if (notice?.type === "error") {
+            setNotice(null);
+          }
+        }}
+        placeholder="Finish your message to the recruiter..."
+      />
+      {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+      <button className="primary-button full-width" type="button" onClick={handleSendRecruiterMessage} disabled={sending}>
+        {sending ? "Sending..." : "Send to recruiter"}
+      </button>
+    </div>
+  );
+}
+
+function formatRoleLevelFit(value: ResumeMatchScan["roleLevelFit"]) {
+  const labels = {
+    too_high: "Too high level",
+    good_fit: "Good level fit",
+    too_low: "Too low level",
+    unclear: "Unclear",
+  };
+
+  return labels[value];
+}
+
+function formatQualificationsMet(value: ResumeMatchScan["qualificationsMet"]) {
+  const labels = {
+    yes: "Yes",
+    no: "No",
+    unclear: "Unclear",
+  };
+
+  return labels[value];
+}
+
+function HirerOutreachComposer({ job }: { job: JobPost }) {
+  const [message, setMessage] = useState("");
+  const [notice, setNotice] = useState<Notice>(null);
+  const [drafting, setDrafting] = useState(true);
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let interval: number | null = null;
+
+    async function loadStarter() {
+      setMessage("");
+      setNotice(null);
+      setDrafting(true);
+
+      let starter = OUTREACH_FALLBACK_STARTER;
+      try {
+        const result = await apiRequest(`/api/jobs/${job.id}/outreach-draft`, { method: "POST" });
+        starter = result.draft?.starter ?? starter;
+      } catch {
+        starter = OUTREACH_FALLBACK_STARTER;
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      const words = starter.split(/\s+/).filter(Boolean).slice(0, 10);
+      let nextWordCount = 0;
+
+      interval = window.setInterval(() => {
+        nextWordCount += 1;
+        setMessage(words.slice(0, nextWordCount).join(" "));
+
+        if (nextWordCount >= words.length) {
+          if (interval !== null) {
+            window.clearInterval(interval);
+          }
+          setDrafting(false);
+        }
+      }, 120);
+    }
+
+    loadStarter();
+
+    return () => {
+      cancelled = true;
+      if (interval !== null) {
+        window.clearInterval(interval);
+      }
+    };
+  }, [job.id]);
+
+  async function handleSendOutreach() {
+    if (hasBlockedOutreachLanguage(message)) {
+      setNotice({ type: "error", text: "Please revise the message before sending. It includes blocked language." });
+      return;
+    }
+
+    if (message.trim().length < 20) {
+      setNotice({ type: "error", text: "Finish the draft with a little more detail before sending." });
+      return;
+    }
+
+    setSending(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest(`/api/jobs/${job.id}/outreach`, {
+        method: "POST",
+        body: { message },
+      });
+      setNotice({ type: "success", text: result.message ?? "Message sent to the hirer." });
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="outreach-card">
+      <div className="outreach-header">
+        <div>
+          <span className="card-label">Hirer outreach</span>
+          <h3>Draft a message to {job.companyName}.</h3>
+        </div>
+        <span className="ai-pill">{drafting ? "AI drafting" : "AI starter"}</span>
+      </div>
+      <p>
+        Dinero started the first 10 words. Finish it with the strongest reason you match this role, then send it to the
+        hirer contact on file.
+      </p>
+      <textarea
+        value={message}
+        onChange={(event) => {
+          setMessage(event.target.value);
+          if (notice?.type === "error") {
+            setNotice(null);
+          }
+        }}
+        placeholder="Finish your message to the hirer..."
+      />
+      {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+      <button className="primary-button full-width" type="button" onClick={handleSendOutreach} disabled={sending}>
+        {sending ? "Sending..." : "Send to hirer"}
+      </button>
+    </div>
+  );
+}
+
+function hasBlockedOutreachLanguage(value: string) {
+  return blockedOutreachLanguage.some((pattern) => pattern.test(value));
+}
+
+function SignalList({ title, items, empty }: { title: string; items: string[]; empty: string }) {
+  return (
+    <div className="signal-list">
+      <strong>{title}</strong>
+      <ul>
+        {(items.length ? items : [empty]).map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ApplicantJobsPanel() {
+  const [jobs, setJobs] = useState<JobPost[]>([]);
+  const [appliedJobs, setAppliedJobs] = useState<JobPost[]>([]);
+  const [sort, setSort] = useState<JobSort>("recent");
+  const [selectedJob, setSelectedJob] = useState<JobPost | null>(null);
+  const [jobCommentDraft, setJobCommentDraft] = useState("");
+  const [notice, setNotice] = useState<Notice>(null);
+  const [loading, setLoading] = useState(true);
+  const [jobDetailLoading, setJobDetailLoading] = useState(false);
+
+  useEffect(() => {
+    loadJobs(sort);
+  }, [sort]);
+
+  async function loadJobs(nextSort: JobSort) {
+    setLoading(true);
+    setNotice(null);
+
+    try {
+      const [jobsResult, appliedResult] = await Promise.all([
+        apiRequest(`/api/jobs?sort=${nextSort}`),
+        apiRequest("/api/applicant/applied-jobs"),
+      ]);
+      setJobs(jobsResult.jobs ?? []);
+      setAppliedJobs(appliedResult.jobs ?? []);
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleOpenJob(job: JobPost) {
+    try {
+      const result = await apiRequest(`/api/jobs/${job.id}/click`, { method: "POST" });
+      const applicationUrl = result.applicationUrl ?? job.applicationUrl;
+      window.open(applicationUrl, "_blank", "noopener,noreferrer");
+      await loadJobs(sort);
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    }
+  }
+
+  async function loadJobThread(jobId: string) {
+    setJobDetailLoading(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest(`/api/jobs/${jobId}`);
+      setSelectedJob(result.job ?? null);
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+      setSelectedJob(null);
+    } finally {
+      setJobDetailLoading(false);
+    }
+  }
+
+  async function handleMarkApplied(job: JobPost) {
+    try {
+      await apiRequest(`/api/jobs/${job.id}/applied`, { method: "POST" });
+      await loadJobs(sort);
+      if (selectedJob?.id === job.id) {
+        await loadJobThread(job.id);
+      }
+      setNotice({ type: "success", text: "Job saved to your previously applied section." });
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    }
+  }
+
+  async function handleJobComment(job: JobPost) {
+    const draft = jobCommentDraft.trim();
+    if (!draft) {
+      return;
+    }
+
+    try {
+      await apiRequest(`/api/jobs/${job.id}/comments`, {
+        method: "POST",
+        body: { body: draft },
+      });
+      setJobCommentDraft("");
+      await loadJobThread(job.id);
+      await loadJobs(sort);
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    }
+  }
+
+  function openJobThread(job: JobPost) {
+    if (job.sourceKind !== "hirer") {
+      return;
+    }
+
+    loadJobThread(job.id);
+  }
+
+  function handleJobCardKeyDown(event: React.KeyboardEvent<HTMLElement>, job: JobPost) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openJobThread(job);
+    }
+  }
+
+  if (selectedJob) {
+    const similarJobs = getSimilarJobPosts(selectedJob, [...jobs, ...appliedJobs]);
+
+    return (
+      <section className="forum-thread-page">
+        <button className="thread-back-button" type="button" onClick={() => setSelectedJob(null)}>
+          Back to jobs
+        </button>
+
+        {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+        {jobDetailLoading && <p className="empty-state">Loading job details...</p>}
+
+        <div className="forum-thread-layout">
+          <article className="forum-post thread-post job-thread-post">
+            <div className="forum-post-header">
+              <div>
+                <span>{selectedJob.hirer.displayName || selectedJob.companyName}</span>
+                <time>{formatDate(selectedJob.createdAt)}</time>
+              </div>
+              <div className="post-actions">
+                {selectedJob.expiresAt && (
+                  <span className={selectedJob.isExpired ? "resolved-badge danger" : "resolved-badge"}>
+                    {selectedJob.isExpired ? "Expired" : `Expires ${formatDate(selectedJob.expiresAt)}`}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="job-thread-heading">
+              {selectedJob.hirer.profileImageDataUrl && <img src={selectedJob.hirer.profileImageDataUrl} alt="" />}
+              <div>
+                <h2>{selectedJob.title}</h2>
+                <p className="job-company">
+                  {selectedJob.companyName}
+                  {selectedJob.location ? ` · ${selectedJob.location}` : ""}
+                  {selectedJob.employmentType ? ` · ${selectedJob.employmentType}` : ""}
+                </p>
+                {selectedJob.hirer.headline && <strong>{selectedJob.hirer.headline}</strong>}
+              </div>
+            </div>
+
+            {selectedJob.hirer.message && <p className="hirer-message">{selectedJob.hirer.message}</p>}
+            <p>{selectedJob.description}</p>
+
+            <div className="job-thread-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={selectedJob.applicantHasApplied}
+                onClick={() => handleMarkApplied(selectedJob)}
+              >
+                {selectedJob.applicantHasApplied ? "Applied" : "Mark applied"}
+              </button>
+              <button className="primary-button" type="button" onClick={() => handleOpenJob(selectedJob)}>
+                Open application
+              </button>
+            </div>
+
+            <div className="comments-list">
+              {selectedJob.comments.length === 0 && <p className="empty-state">No questions yet. Start the thread below.</p>}
+              {selectedJob.comments.map((comment) => (
+                <div className="comment" key={comment.id}>
+                  <div>
+                    <strong>{comment.authorName}</strong>
+                    <time>{formatDate(comment.createdAt)}</time>
+                  </div>
+                  <p>{comment.body}</p>
+                </div>
+              ))}
+            </div>
+            <div className="comment-box">
+              <input value={jobCommentDraft} onChange={(event) => setJobCommentDraft(event.target.value)} placeholder="Ask a question about this job" />
+              <button className="secondary-button" type="button" onClick={() => handleJobComment(selectedJob)}>
+                Comment
+              </button>
+            </div>
+          </article>
+
+          <aside className="similar-posts-panel">
+            <span className="card-label">Similar jobs</span>
+            {similarJobs.length === 0 && <p>No similar jobs yet.</p>}
+            {similarJobs.map((job) => (
+              <button className="similar-post" type="button" key={job.id} onClick={() => loadJobThread(job.id)}>
+                <strong>{job.title}</strong>
+                <span>{job.companyName}</span>
+                <em>
+                  {job.commentCount} {job.commentCount === 1 ? "comment" : "comments"}
+                </em>
+              </button>
+            ))}
+          </aside>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="jobs-panel">
+      <div className="jobs-toolbar">
+        <div>
+          <span className="card-label">Job postings</span>
+          <h2>Explore roles posted through Dinero.</h2>
+        </div>
+        <div className="portal-tabs compact" aria-label="Job sorting">
+          <button className={sort === "recent" ? "selected" : ""} type="button" onClick={() => setSort("recent")}>
+            Recent
+          </button>
+          <button className={sort === "popular" ? "selected" : ""} type="button" onClick={() => setSort("popular")}>
+            Popular
+          </button>
+        </div>
+      </div>
+      {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+      {loading && <p className="empty-state">Loading job postings...</p>}
+      {!loading && jobs.length === 0 && (
+        <p className="empty-state">No job postings yet. Hirer posts and future scraped API roles will appear here.</p>
+      )}
+      <div className="jobs-list">
+        {jobs.map((job) => (
+          <article
+            className={job.sourceKind === "hirer" ? "job-card job-feed-card clickable" : "job-card"}
+            key={job.id}
+            role={job.sourceKind === "hirer" ? "button" : undefined}
+            tabIndex={job.sourceKind === "hirer" ? 0 : undefined}
+            onClick={() => openJobThread(job)}
+            onKeyDown={(event) => handleJobCardKeyDown(event, job)}
+          >
+            <div className="job-card-main">
+              <div className="job-source-row">
+                <span>{job.sourceKind === "hirer" ? "Hirer post" : "API scrape"}</span>
+                {job.expiresAt && <span className="job-status-pill">Expires {formatDate(job.expiresAt)}</span>}
+                {job.sourceKind === "hirer" && (
+                  <span className="job-status-pill">
+                    {job.commentCount} {job.commentCount === 1 ? "comment" : "comments"}
+                  </span>
+                )}
+                <time>{formatDate(job.createdAt)}</time>
+              </div>
+              <h3>{job.title}</h3>
+              <p className="job-company">
+                {job.companyName}
+                {job.location ? ` · ${job.location}` : ""}
+                {job.employmentType ? ` · ${job.employmentType}` : ""}
+              </p>
+              <p>{job.sourceKind === "hirer" ? truncateText(job.description, 220) : job.description}</p>
+              {job.hirer.message && <p className="hirer-message">{job.hirer.message}</p>}
+            </div>
+            <div className="job-card-side">
+              {job.hirer.profileImageDataUrl && <img src={job.hirer.profileImageDataUrl} alt="" />}
+              <strong>{job.hirer.displayName || job.companyName}</strong>
+              {job.hirer.headline && <span>{job.hirer.headline}</span>}
+              <span>{job.clickCount} clicks</span>
+              <button
+                className="secondary-button full-width"
+                type="button"
+                disabled={job.applicantHasApplied}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleMarkApplied(job);
+                }}
+              >
+                {job.applicantHasApplied ? "Applied" : "Mark applied"}
+              </button>
+              <button
+                className="primary-button full-width"
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleOpenJob(job);
+                }}
+              >
+                Open application
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+      <div className="jobs-toolbar secondary-toolbar">
+        <div>
+          <span className="card-label">Previously applied</span>
+          <h2>Your saved application history.</h2>
+        </div>
+      </div>
+      {appliedJobs.length === 0 && <p className="empty-state">Jobs you mark as applied will stay here, even after they expire.</p>}
+      <div className="jobs-list">
+        {appliedJobs.map((job) => (
+          <article
+            className={`job-card ${job.sourceKind === "hirer" ? "job-feed-card clickable" : ""} ${job.isExpired ? "expired-job-card" : ""}`}
+            key={job.id}
+            role={job.sourceKind === "hirer" ? "button" : undefined}
+            tabIndex={job.sourceKind === "hirer" ? 0 : undefined}
+            onClick={() => openJobThread(job)}
+            onKeyDown={(event) => handleJobCardKeyDown(event, job)}
+          >
+            <div className="job-card-main">
+              <div className="job-source-row">
+                <span>{job.sourceKind === "hirer" ? "Hirer post" : "API scrape"}</span>
+                {job.isExpired && <span className="job-status-pill expired">Expired</span>}
+                {job.expiresAt && <span className="job-status-pill">Expires {formatDate(job.expiresAt)}</span>}
+                {job.sourceKind === "hirer" && (
+                  <span className="job-status-pill">
+                    {job.commentCount} {job.commentCount === 1 ? "comment" : "comments"}
+                  </span>
+                )}
+                <time>{formatDate(job.createdAt)}</time>
+              </div>
+              <h3>{job.title}</h3>
+              <p className="job-company">
+                {job.companyName}
+                {job.location ? ` · ${job.location}` : ""}
+                {job.employmentType ? ` · ${job.employmentType}` : ""}
+              </p>
+              <p>{job.sourceKind === "hirer" ? truncateText(job.description, 220) : job.description}</p>
+            </div>
+            <div className="job-card-side">
+              {job.hirer.profileImageDataUrl && <img src={job.hirer.profileImageDataUrl} alt="" />}
+              <strong>{job.hirer.displayName || job.companyName}</strong>
+              {job.hirer.headline && <span>{job.hirer.headline}</span>}
+              <span>{job.clickCount} clicks</span>
+              <button
+                className="primary-button full-width"
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleOpenJob(job);
+                }}
+              >
+                Open application
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ApplicantHirerSearchPanel() {
+  const [name, setName] = useState("");
+  const [hirers, setHirers] = useState<HirerProfile[]>([]);
+  const [notice, setNotice] = useState<Notice>(null);
+  const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+
+  async function handleSearch(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const exactName = name.trim();
+    if (!exactName) {
+      return;
+    }
+
+    setLoading(true);
+    setNotice(null);
+    setSearched(true);
+
+    try {
+      const result = await apiRequest(`/api/hirers/search?name=${encodeURIComponent(exactName)}`);
+      setHirers(result.hirers ?? []);
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+      setHirers([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <section className="jobs-panel">
+      <div className="jobs-toolbar">
+        <div>
+          <span className="card-label">Hirer search</span>
+          <h2>Find registered hirer profiles.</h2>
+        </div>
+      </div>
+
+      <article className="portal-card">
+        <form className="auth-form hirer-search-form" onSubmit={handleSearch}>
+          <label>
+            Exact hirer name
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Type the hirer's profile name exactly"
+              required
+            />
+          </label>
+          <button className="primary-button" type="submit" disabled={loading}>
+            {loading ? "Searching..." : "Search hirers"}
+          </button>
+        </form>
+      </article>
+
+      {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+      {searched && !loading && hirers.length === 0 && <p className="empty-state">No registered hirer profile found for that exact name.</p>}
+
+      <div className="hirer-search-results">
+        {hirers.map((hirer) => (
+          <article className="hirer-result-card" key={hirer.id}>
+            {hirer.profileImageDataUrl && <img src={hirer.profileImageDataUrl} alt="" />}
+            <div>
+              <h3>{hirer.displayName}</h3>
+              {hirer.headline && <strong>{hirer.headline}</strong>}
+              {hirer.companyName && <span>{hirer.companyName}</span>}
+              {hirer.message && <p>{hirer.message}</p>}
+              {hirer.companyInfo && <p>{hirer.companyInfo}</p>}
+              <div className="hirer-contact-row">
+                {hirer.contactEmail && <a href={`mailto:${hirer.contactEmail}`}>{hirer.contactEmail}</a>}
+                {hirer.websiteUrl && (
+                  <a href={hirer.websiteUrl} target="_blank" rel="noreferrer">
+                    Website
+                  </a>
+                )}
+                {hirer.linkedinUrl && (
+                  <a href={hirer.linkedinUrl} target="_blank" rel="noreferrer">
+                    LinkedIn
+                  </a>
+                )}
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ForumPanel({ currentUser }: { currentUser: CurrentUser }) {
+  const [posts, setPosts] = useState<ForumPost[]>([]);
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [editSubject, setEditSubject] = useState("");
+  const [editBody, setEditBody] = useState("");
+  const [notice, setNotice] = useState<Notice>(null);
+  const [loading, setLoading] = useState(true);
+  const [posting, setPosting] = useState(false);
+
+  useEffect(() => {
+    loadPosts();
+  }, []);
+
+  async function loadPosts() {
+    setLoading(true);
+    try {
+      const result = await apiRequest("/api/forum/posts");
+      setPosts(result.posts ?? []);
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreatePost(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPosting(true);
+    setNotice(null);
+
+    try {
+      await apiRequest("/api/forum/posts", {
+        method: "POST",
+        body: { subject, body },
+      });
+      setSubject("");
+      setBody("");
+      setNotice({ type: "success", text: "Post created." });
+      const result = await apiRequest("/api/forum/posts");
+      const nextPosts = result.posts ?? [];
+      setPosts(nextPosts);
+      setSelectedPostId(nextPosts[0]?.id ?? null);
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  async function handleComment(postId: string) {
+    const draft = commentDrafts[postId]?.trim() ?? "";
+    if (!draft) {
+      return;
+    }
+
+    try {
+      await apiRequest(`/api/forum/posts/${postId}/comments`, {
+        method: "POST",
+        body: { body: draft },
+      });
+      setCommentDrafts((drafts) => ({ ...drafts, [postId]: "" }));
+      await loadPosts();
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    }
+  }
+
+  async function handleResolved(post: ForumPost) {
+    try {
+      await apiRequest(`/api/forum/posts/${post.id}/resolved`, {
+        method: "PATCH",
+        body: { isResolved: !post.isResolved },
+      });
+      await loadPosts();
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    }
+  }
+
+  function startEditing(post: ForumPost) {
+    setSelectedPostId(post.id);
+    setEditingPostId(post.id);
+    setEditSubject(post.subject);
+    setEditBody(post.body);
+    setNotice(null);
+  }
+
+  function cancelEditing() {
+    setEditingPostId(null);
+    setEditSubject("");
+    setEditBody("");
+  }
+
+  async function handleEditPost(postId: string) {
+    try {
+      await apiRequest(`/api/forum/posts/${postId}`, {
+        method: "PATCH",
+        body: { subject: editSubject, body: editBody },
+      });
+      cancelEditing();
+      await loadPosts();
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    }
+  }
+
+  async function handleDeletePost(post: ForumPost) {
+    const confirmed = window.confirm("Delete this post and all of its replies?");
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await apiRequest(`/api/forum/posts/${post.id}`, {
+        method: "DELETE",
+      });
+      setNotice({ type: "success", text: "Post deleted." });
+      setSelectedPostId(null);
+      await loadPosts();
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    }
+  }
+
+  const selectedPost = posts.find((post) => post.id === selectedPostId) ?? null;
+
+  if (selectedPost) {
+    const similarPosts = getSimilarForumPosts(selectedPost, posts);
+
+    return (
+      <section className="forum-thread-page">
+        <button
+          className="thread-back-button"
+          type="button"
+          onClick={() => {
+            setSelectedPostId(null);
+            cancelEditing();
+          }}
+        >
+          Back to forum
+        </button>
+
+        <div className="forum-thread-layout">
+          <article className={selectedPost.isResolved ? "forum-post thread-post resolved" : "forum-post thread-post"}>
+            <div className="forum-post-header">
+              <div>
+                <span>{selectedPost.authorName}</span>
+                <time>
+                  {formatDate(selectedPost.createdAt)}
+                  {selectedPost.editedAt && <em> (edited)</em>}
+                </time>
+              </div>
+              {selectedPost.authorUserId === currentUser.id ? (
+                <div className="post-actions">
+                  <button className="resolved-toggle" type="button" onClick={() => handleResolved(selectedPost)}>
+                    {selectedPost.isResolved ? "Resolved" : "Mark resolved"}
+                  </button>
+                  <button className="mini-action" type="button" onClick={() => startEditing(selectedPost)}>
+                    Edit
+                  </button>
+                  <button className="mini-action danger" type="button" onClick={() => handleDeletePost(selectedPost)}>
+                    Delete
+                  </button>
+                </div>
+              ) : (
+                selectedPost.isResolved && <span className="resolved-badge">Resolved</span>
+              )}
+            </div>
+
+            {editingPostId === selectedPost.id ? (
+              <form className="auth-form edit-post-form" onSubmit={(event) => event.preventDefault()}>
+                <label>
+                  Subject
+                  <input
+                    value={editSubject}
+                    onChange={(event) => setEditSubject(event.target.value)}
+                    minLength={4}
+                    maxLength={160}
+                    required
+                  />
+                </label>
+                <label>
+                  Post
+                  <textarea
+                    value={editBody}
+                    onChange={(event) => setEditBody(event.target.value)}
+                    minLength={10}
+                    maxLength={4000}
+                    required
+                  />
+                </label>
+                <div className="edit-actions">
+                  <button className="primary-button" type="button" onClick={() => handleEditPost(selectedPost.id)}>
+                    Save edit
+                  </button>
+                  <button className="secondary-button" type="button" onClick={cancelEditing}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <>
+                <h2>{selectedPost.subject}</h2>
+                <p>{selectedPost.body}</p>
+              </>
+            )}
+
+            <div className="comments-list">
+              {selectedPost.comments.map((comment) => (
+                <div className="comment" key={comment.id}>
+                  <div>
+                    <strong>{comment.authorName}</strong>
+                    <time>{formatDate(comment.createdAt)}</time>
+                  </div>
+                  <p>{comment.body}</p>
+                </div>
+              ))}
+            </div>
+            <div className="comment-box">
+              <input
+                value={commentDrafts[selectedPost.id] ?? ""}
+                onChange={(event) => setCommentDrafts((drafts) => ({ ...drafts, [selectedPost.id]: event.target.value }))}
+                placeholder="Reply to this post"
+              />
+              <button className="secondary-button" type="button" onClick={() => handleComment(selectedPost.id)}>
+                Reply
+              </button>
+            </div>
+          </article>
+
+          <aside className="similar-posts-panel">
+            <span className="card-label">Similar posts</span>
+            {similarPosts.length === 0 && <p>No similar posts yet.</p>}
+            {similarPosts.map((post) => (
+              <button className="similar-post" type="button" key={post.id} onClick={() => setSelectedPostId(post.id)}>
+                <strong>{post.subject}</strong>
+                <span>{truncateText(post.body, 90)}</span>
+                <em>
+                  {post.comments.length} {post.comments.length === 1 ? "reply" : "replies"}
+                </em>
+              </button>
+            ))}
+          </aside>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="forum-layout">
+      <aside className="portal-card forum-composer">
+        <span className="card-label">Global forum</span>
+        <h2>Create a post.</h2>
+        <p>Ask application questions, share blockers, and help other applicants. Posts and replies are stored by date.</p>
+        <form className="auth-form" onSubmit={handleCreatePost}>
+          <label>
+            Subject
+            <input value={subject} onChange={(event) => setSubject(event.target.value)} minLength={4} maxLength={160} required />
+          </label>
+          <label>
+            Post
+            <textarea value={body} onChange={(event) => setBody(event.target.value)} minLength={10} maxLength={4000} required />
+          </label>
+          <p className="form-note">Posts with blocked inappropriate keywords cannot be published.</p>
+          {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+          <button className="primary-button full-width" type="submit" disabled={posting}>
+            {posting ? "Posting..." : "Publish post"}
+          </button>
+        </form>
+      </aside>
+
+      <div className="forum-feed">
+        {loading && <p className="empty-state">Loading forum posts...</p>}
+        {!loading && posts.length === 0 && <p className="empty-state">No posts yet. Start the first thread.</p>}
+        {posts.map((post) => (
+          <article className={post.isResolved ? "forum-post resolved" : "forum-post"} key={post.id}>
+            <div className="forum-post-header">
+              <div>
+                <span>{post.authorName}</span>
+                <time>
+                  {formatDate(post.createdAt)}
+                  {post.editedAt && <em> (edited)</em>}
+                </time>
+              </div>
+              {post.authorUserId === currentUser.id && (
+                <div className="post-actions">
+                  <button className="resolved-toggle" type="button" onClick={() => handleResolved(post)}>
+                    {post.isResolved ? "Resolved" : "Mark resolved"}
+                  </button>
+                  <button className="mini-action" type="button" onClick={() => startEditing(post)}>
+                    Edit
+                  </button>
+                  <button className="mini-action danger" type="button" onClick={() => handleDeletePost(post)}>
+                    Delete
+                  </button>
+                </div>
+              )}
+              {post.authorUserId !== currentUser.id && post.isResolved && <span className="resolved-badge">Resolved</span>}
+            </div>
+            <button
+              className="forum-post-preview"
+              type="button"
+              onClick={() => setSelectedPostId(post.id)}
+            >
+              <strong>{post.subject}</strong>
+              <span>{truncateText(post.body, 170)}</span>
+              <em>
+                {post.comments.length} {post.comments.length === 1 ? "reply" : "replies"}
+                {" · Open"}
+              </em>
+            </button>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function HirerPortal({
+  user,
+  onNavigate,
+  onLogout,
+}: {
+  user: CurrentUser;
+  onNavigate: (view: View) => void;
+  onLogout: () => void;
+}) {
+  const [activeTab, setActiveTab] = useState<HirerTab>("profile");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  return (
+    <main className="portal-page">
+      <div className="portal-topbar">
+        <button className="secondary-button" type="button" onClick={() => onNavigate("home")}>
+          Home
+        </button>
+        <div>
+          <span>Hirer portal</span>
+          <strong>{user.fullName || user.email}</strong>
+        </div>
+        <button className="secondary-button" type="button" onClick={() => setSettingsOpen(true)}>
+          Settings
+        </button>
+      </div>
+
+      <section className="portal-hero">
+        <div>
+          <p className="eyebrow">Hiring workspace</p>
+          <h1>Build your profile and publish roles.</h1>
+          <p>
+            Create a public hiring profile, upload a picture, and post job links. Dinero will add link scraping later;
+            for now, the role details are entered directly and shown to applicants.
+          </p>
+        </div>
+        <div className="portal-status-card">
+          <span>Visible to applicants</span>
+          <strong>Profile + job posts</strong>
+          <p>Applicants can sort jobs by recent or popular, with each application click tracked.</p>
+        </div>
+      </section>
+
+      <div className="portal-tabs" aria-label="Hirer portal sections">
+        <button className={activeTab === "profile" ? "selected" : ""} onClick={() => setActiveTab("profile")} type="button">
+          Hiring profile
+        </button>
+        <button className={activeTab === "jobs" ? "selected" : ""} onClick={() => setActiveTab("jobs")} type="button">
+          Job postings
+        </button>
+      </div>
+
+      {activeTab === "profile" ? <HirerProfilePanel user={user} /> : <HirerJobsPanel user={user} />}
+
+      {settingsOpen && (
+        <div className="settings-backdrop" role="presentation" onClick={() => setSettingsOpen(false)}>
+          <aside className="settings-panel" aria-label="Hirer settings" onClick={(event) => event.stopPropagation()}>
+            <div className="settings-header">
+              <div>
+                <p className="eyebrow">Settings</p>
+                <h2>Account controls</h2>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setSettingsOpen(false)} aria-label="Close settings">
+                x
+              </button>
+            </div>
+            <div className="settings-user">
+              <span>{user.fullName || "Hirer"}</span>
+              <strong>{user.email}</strong>
+            </div>
+            <p className="settings-note">More hiring settings will live here later.</p>
+            <button className="primary-button full-width" type="button" onClick={onLogout}>
+              Sign out
+            </button>
+          </aside>
+        </div>
+      )}
+    </main>
+  );
+}
+
+function HirerProfilePanel({ user }: { user: CurrentUser }) {
+  const [displayName, setDisplayName] = useState(user.fullName ?? "");
+  const [profileImageDataUrl, setProfileImageDataUrl] = useState("");
+  const [headline, setHeadline] = useState("");
+  const [message, setMessage] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [companyInfo, setCompanyInfo] = useState("");
+  const [contactEmail, setContactEmail] = useState(user.email);
+  const [contactPhone, setContactPhone] = useState("");
+  const [websiteUrl, setWebsiteUrl] = useState("");
+  const [linkedinUrl, setLinkedinUrl] = useState("");
+  const [notice, setNotice] = useState<Notice>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
+  async function loadProfile() {
+    setLoading(true);
+    try {
+      const result = await apiRequest("/api/hirer/profile");
+      const profile = result.profile as HirerProfile | null;
+      if (profile) {
+        setDisplayName(profile.displayName ?? "");
+        setProfileImageDataUrl(profile.profileImageDataUrl ?? "");
+        setHeadline(profile.headline ?? "");
+        setMessage(profile.message ?? "");
+        setCompanyName(profile.companyName ?? "");
+        setCompanyInfo(profile.companyInfo ?? "");
+        setContactEmail(profile.contactEmail ?? user.email);
+        setContactPhone(profile.contactPhone ?? "");
+        setWebsiteUrl(profile.websiteUrl ?? "");
+        setLinkedinUrl(profile.linkedinUrl ?? "");
+      }
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleImageChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      setNotice({ type: "error", text: "Please upload an image file." });
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size > 750_000) {
+      setNotice({ type: "error", text: "Please use an image under 750 KB for now." });
+      event.target.value = "";
+      return;
+    }
+
+    setProfileImageDataUrl(await readFileAsDataUrl(file));
+  }
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest("/api/hirer/profile", {
+        method: "PUT",
+        body: {
+          displayName,
+          profileImageDataUrl,
+          headline,
+          message,
+          companyName,
+          companyInfo,
+          contactEmail,
+          contactPhone,
+          websiteUrl,
+          linkedinUrl,
+        },
+      });
+      setNotice({ type: "success", text: result.message ?? "Hirer profile saved." });
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="portal-grid">
+      <article className="portal-card">
+        <span className="card-label">Hiring profile</span>
+        <h2>Create the profile applicants see.</h2>
+        <p>Use this to explain who you are, what your company does, and how candidates can contact you.</p>
+        {loading && <p className="empty-state">Loading profile...</p>}
+        <form className="auth-form" onSubmit={handleSubmit}>
+          <label className="profile-image-picker">
+            <input type="file" accept="image/*" onChange={handleImageChange} />
+            {profileImageDataUrl ? <img src={profileImageDataUrl} alt="" /> : <span>Upload picture</span>}
+          </label>
+          <div className="form-grid">
+            <label>
+              Your name
+              <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+            </label>
+            <label>
+              Company
+              <input value={companyName} onChange={(event) => setCompanyName(event.target.value)} />
+            </label>
+          </div>
+          <label>
+            Headline
+            <input value={headline} onChange={(event) => setHeadline(event.target.value)} placeholder="Recruiting ML engineers at..." />
+          </label>
+          <label>
+            Message to applicants
+            <textarea value={message} onChange={(event) => setMessage(event.target.value)} />
+          </label>
+          <label>
+            Company info
+            <textarea value={companyInfo} onChange={(event) => setCompanyInfo(event.target.value)} />
+          </label>
+          <div className="form-grid">
+            <label>
+              Contact email
+              <input type="email" value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} />
+            </label>
+            <label>
+              Contact phone
+              <input value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} />
+            </label>
+          </div>
+          <div className="form-grid">
+            <label>
+              Website
+              <input type="url" value={websiteUrl} onChange={(event) => setWebsiteUrl(event.target.value)} />
+            </label>
+            <label>
+              LinkedIn
+              <input type="url" value={linkedinUrl} onChange={(event) => setLinkedinUrl(event.target.value)} />
+            </label>
+          </div>
+          {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+          <button className="primary-button full-width" type="submit" disabled={saving}>
+            {saving ? "Saving..." : "Save profile"}
+          </button>
+        </form>
+      </article>
+      <article className="portal-card hirer-preview-card">
+        <span className="card-label">Preview</span>
+        {profileImageDataUrl && <img src={profileImageDataUrl} alt="" />}
+        <h3>{displayName || "Your name"}</h3>
+        <strong>{headline || "Hiring headline"}</strong>
+        <p>{message || "Your message to applicants will appear here."}</p>
+        <p>{companyInfo || "Company information will appear here."}</p>
+      </article>
+    </section>
+  );
+}
+
+function HirerJobsPanel({ user }: { user: CurrentUser }) {
+  const emptyJob = {
+    title: "",
+    companyName: "",
+    location: "",
+    employmentType: "",
+    applicationUrl: "",
+    description: "",
+    expiresAt: "",
+  };
+  const [jobs, setJobs] = useState<JobPost[]>([]);
+  const [form, setForm] = useState(emptyJob);
+  const [editingJobId, setEditingJobId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    loadJobs();
+  }, []);
+
+  async function loadJobs() {
+    setLoading(true);
+    try {
+      const result = await apiRequest("/api/hirer/jobs");
+      setJobs(result.jobs ?? []);
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function updateForm(field: keyof typeof form, value: string) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function startEditingJob(job: JobPost) {
+    setEditingJobId(job.id);
+    setForm({
+      title: job.title,
+      companyName: job.companyName,
+      location: job.location ?? "",
+      employmentType: job.employmentType ?? "",
+      applicationUrl: job.applicationUrl,
+      description: job.description,
+      expiresAt: toDateInputValue(job.expiresAt),
+    });
+    setNotice(null);
+  }
+
+  function resetForm() {
+    setEditingJobId(null);
+    setForm(emptyJob);
+  }
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setNotice(null);
+
+    try {
+      const path = editingJobId ? `/api/hirer/jobs/${editingJobId}` : "/api/hirer/jobs";
+      const jobBody = {
+        ...form,
+        expiresAt: form.expiresAt ? dateInputToEndOfDayIso(form.expiresAt) : "",
+      };
+      await apiRequest(path, {
+        method: editingJobId ? "PATCH" : "POST",
+        body: jobBody,
+      });
+      setNotice({ type: "success", text: editingJobId ? "Job post updated." : "Job post published." });
+      resetForm();
+      await loadJobs();
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(job: JobPost) {
+    const confirmed = window.confirm("Delete this job posting?");
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await apiRequest(`/api/hirer/jobs/${job.id}`, { method: "DELETE" });
+      setNotice({ type: "success", text: "Job post deleted." });
+      await loadJobs();
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    }
+  }
+
+  const activeJobs = jobs.filter((job) => !job.isExpired);
+  const archivedJobs = jobs.filter((job) => job.isExpired);
+
+  function renderHirerJob(job: JobPost) {
+    return (
+      <article className={`job-card compact-job-card ${job.isExpired ? "expired-job-card" : ""}`} key={job.id}>
+        <div className="job-card-main">
+          <div className="job-source-row">
+            <span>{job.clickCount} clicks</span>
+            {job.isExpired && <span className="job-status-pill expired">Archived</span>}
+            {job.expiresAt && <span className="job-status-pill">Expires {formatDate(job.expiresAt)}</span>}
+            <time>{formatDate(job.createdAt)}</time>
+          </div>
+          <h3>{job.title}</h3>
+          <p className="job-company">
+            {job.companyName}
+            {job.location ? ` · ${job.location}` : ""}
+          </p>
+          <p>{job.description}</p>
+        </div>
+        <div className="post-actions">
+          <button className="mini-action" type="button" onClick={() => startEditingJob(job)}>
+            Edit
+          </button>
+          <button className="mini-action danger" type="button" onClick={() => handleDelete(job)}>
+            Delete
+          </button>
+        </div>
+      </article>
+    );
+  }
+
+  return (
+    <section className="hirer-jobs-layout">
+      <article className="portal-card">
+        <span className="card-label">Upload job posting</span>
+        <h2>{editingJobId ? "Edit job posting." : "Post a role."}</h2>
+        <p>Paste the application link now. Later, Dinero will scrape that link and prefill the details.</p>
+        <form className="auth-form" onSubmit={handleSubmit}>
+          <label>
+            Application link
+            <input
+              type="url"
+              value={form.applicationUrl}
+              onChange={(event) => updateForm("applicationUrl", event.target.value)}
+              placeholder="https://company.com/careers/job"
+              required
+            />
+          </label>
+          <div className="form-grid">
+            <label>
+              Job title
+              <input value={form.title} onChange={(event) => updateForm("title", event.target.value)} required />
+            </label>
+            <label>
+              Company
+              <input value={form.companyName} onChange={(event) => updateForm("companyName", event.target.value)} required />
+            </label>
+          </div>
+          <div className="form-grid">
+            <label>
+              Location
+              <input value={form.location} onChange={(event) => updateForm("location", event.target.value)} />
+            </label>
+            <label>
+              Employment type
+              <input value={form.employmentType} onChange={(event) => updateForm("employmentType", event.target.value)} />
+            </label>
+            <label>
+              Expire date
+              <input type="date" value={form.expiresAt} onChange={(event) => updateForm("expiresAt", event.target.value)} />
+            </label>
+          </div>
+          <label>
+            Description
+            <textarea value={form.description} onChange={(event) => updateForm("description", event.target.value)} required />
+          </label>
+          {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+          <div className="edit-actions">
+            <button className="primary-button" type="submit" disabled={saving}>
+              {saving ? "Saving..." : editingJobId ? "Save job" : "Publish job"}
+            </button>
+            {editingJobId && (
+              <button className="secondary-button" type="button" onClick={resetForm}>
+                Cancel
+              </button>
+            )}
+          </div>
+        </form>
+      </article>
+      <div className="forum-feed">
+        {loading && <p className="empty-state">Loading your postings...</p>}
+        {!loading && jobs.length === 0 && <p className="empty-state">No job postings yet.</p>}
+        {activeJobs.length > 0 && (
+          <>
+            <div className="section-kicker">Active postings</div>
+            {activeJobs.map(renderHirerJob)}
+          </>
+        )}
+        {archivedJobs.length > 0 && (
+          <>
+            <div className="section-kicker">Archives</div>
+            {archivedJobs.map(renderHirerJob)}
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ApplicantAuth({
+  currentUser,
+  initialNotice,
+  onAuthenticated,
+  onNavigate,
+  onLogout,
+  onNoticeConsumed,
+}: {
+  currentUser: CurrentUser | null;
+  initialNotice: Notice;
+  onAuthenticated: (user: CurrentUser) => void;
+  onNavigate: (view: View) => void;
+  onLogout: () => void;
+  onNoticeConsumed: () => void;
+}) {
+  const [mode, setMode] = useState<AuthMode>("signin");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [verificationToken, setVerificationToken] = useState("");
+  const [notice, setNotice] = useState<Notice>(null);
+  const [loading, setLoading] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [resending, setResending] = useState(false);
+  const submitLabel = mode === "signin" ? "Sign in as applicant" : "Create applicant account";
+
+  useEffect(() => {
+    if (initialNotice) {
+      setMode("signin");
+      setNotice(initialNotice);
+      onNoticeConsumed();
+    }
+  }, [initialNotice, onNoticeConsumed]);
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setNotice(null);
+
+    try {
+      validateSignupPassword(mode, password, confirmPassword);
+      const result = await apiRequest(mode === "signin" ? "/api/signin" : "/api/applicants/signup", {
+        method: "POST",
+        body: {
+          email,
+          password,
+          ...(mode === "signin" ? { role: "applicant" } : { fullName: fullName || undefined }),
+        },
+      });
+
+      setNotice({
+        type: "success",
+        text:
+          result.message ??
+          (mode === "signin"
+            ? "Signed in as applicant."
+            : "Applicant account created. Check your email to verify before signing in."),
+      });
+      if (mode === "signin") {
+        onAuthenticated(result.user);
+      } else {
+        setMode("signin");
+        setPassword("");
+        setConfirmPassword("");
+      }
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerifyEmail(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setVerifying(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest("/api/verify-email", {
+        method: "POST",
+        body: { token: verificationToken },
+      });
+      setNotice({ type: "success", text: result.message ?? "Email verified." });
+      if (result.user) {
+        onAuthenticated(result.user);
+      }
+      setVerificationToken("");
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  async function handleResendVerification() {
+    setResending(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest("/api/resend-verification", {
+        method: "POST",
+        body: { email, role: "applicant" },
+      });
+      setNotice({ type: "success", text: result.message ?? "Verification email sent." });
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setResending(false);
+    }
+  }
+
+  if (currentUser?.role === "applicant" && currentUser.emailVerified) {
+    return <ApplicantPortal user={currentUser} onNavigate={onNavigate} onLogout={onLogout} />;
+  }
+
+  return (
+    <AuthLayout
+      eyebrow="Applicant portal"
+      title="Turn a resume into a smarter application strategy."
+      body="Sign in to track target roles, compare your resume against job descriptions, and see which changes could lift your interview chance."
+      previewTitle="Applicant outcome loop"
+      previewItems={["Resume PDF upload", "Interview chance by role", "Email verification after signup"]}
+    >
+      {currentUser?.role === "applicant" && <SignedInPanel user={currentUser} />}
+      <SegmentedControl mode={mode} setMode={setMode} />
+      <form className="auth-form" onSubmit={handleSubmit}>
+        {mode === "signup" && (
+          <label>
+            Full name
+            <input
+              type="text"
+              placeholder="Your name"
+              value={fullName}
+              onChange={(event) => setFullName(event.target.value)}
+            />
+          </label>
+        )}
+        <label>
+          Email
+          <input
+            type="email"
+            placeholder="you@example.com"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+          />
+        </label>
+        <label>
+          Password
+          <input
+            type="password"
+            placeholder="Enter your password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            minLength={mode === "signup" ? 8 : 1}
+            required
+          />
+        </label>
+        {mode === "signup" && (
+          <>
+            <label>
+              Confirm password
+              <input
+                type="password"
+                placeholder="Type your password again"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                minLength={8}
+                required
+              />
+            </label>
+            <PasswordMatchMessage password={password} confirmPassword={confirmPassword} />
+            <PasswordRequirements password={password} />
+          </>
+        )}
+        {mode === "signup" && (
+          <p className="form-note">
+            After signup, Dinero will send a verification link. Role focus will be inferred later from your resume and
+            target jobs.
+          </p>
+        )}
+        {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+        <button className="primary-button full-width" type="submit" disabled={loading}>
+          {loading ? "Working..." : submitLabel}
+        </button>
+      </form>
+      {mode === "signin" && (
+        <button className="ghost-button full-width" type="button" disabled={resending || !email} onClick={handleResendVerification}>
+          {resending ? "Sending..." : "Resend verification email"}
+        </button>
+      )}
+      {currentUser?.role === "applicant" && !currentUser.emailVerified && (
+        <EmailVerificationForm
+          token={verificationToken}
+          loading={verifying}
+          onTokenChange={setVerificationToken}
+          onSubmit={handleVerifyEmail}
+        />
+      )}
+    </AuthLayout>
+  );
+}
+
+function HirerAuth({
+  currentUser,
+  initialNotice,
+  onAuthenticated,
+  onNavigate,
+  onLogout,
+  onNoticeConsumed,
+}: {
+  currentUser: CurrentUser | null;
+  initialNotice: Notice;
+  onAuthenticated: (user: CurrentUser) => void;
+  onNavigate: (view: View) => void;
+  onLogout: () => void;
+  onNoticeConsumed: () => void;
+}) {
+  const [mode, setMode] = useState<AuthMode>("signin");
+  const [companyName, setCompanyName] = useState("");
+  const [companyVerificationEmail, setCompanyVerificationEmail] = useState("");
+  const [companySuggestions, setCompanySuggestions] = useState<CompanySuggestion[]>([]);
+  const [companyLookupMessage, setCompanyLookupMessage] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [verificationToken, setVerificationToken] = useState("");
+  const [notice, setNotice] = useState<Notice>(null);
+  const [loading, setLoading] = useState(false);
+  const [checkingCompany, setCheckingCompany] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [resending, setResending] = useState(false);
+  const submitLabel = mode === "signin" ? "Sign in as hirer" : "Create hirer account";
+
+  useEffect(() => {
+    if (initialNotice) {
+      setMode("signin");
+      setNotice(initialNotice);
+      onNoticeConsumed();
+    }
+  }, [initialNotice, onNoticeConsumed]);
+
+  async function handleCompanyLookup() {
+    if (!companyName || !email) {
+      setNotice({ type: "error", text: "Enter a work email and company name before checking the company." });
+      return;
+    }
+
+    setCheckingCompany(true);
+    setNotice(null);
+    setCompanyLookupMessage("");
+    setCompanySuggestions([]);
+
+    try {
+      const result = await apiRequest("/api/companies/suggest", {
+        method: "POST",
+        body: { companyName, email },
+      });
+      const suggestions = result.suggestions ?? [];
+      setCompanySuggestions(suggestions);
+      setCompanyLookupMessage(suggestions.length > 0 ? "Found" : "Verify Company Later");
+      if (suggestions.length === 0) {
+        setNotice({
+          type: "success",
+          text: "Verify Company Later",
+        });
+      }
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setCheckingCompany(false);
+    }
+  }
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await submitAuth(false);
+  }
+
+  async function submitAuth(confirmSuspiciousCompanyEmail: boolean) {
+    setLoading(true);
+    setNotice(null);
+
+    try {
+      validateSignupPassword(mode, password, confirmPassword);
+      const normalizedCompanyEmail = (companyVerificationEmail || email).trim().toLowerCase();
+      const normalizedHirerEmail = email.trim().toLowerCase();
+      const shouldConfirmSameEmail =
+        mode === "signup" && normalizedCompanyEmail === normalizedHirerEmail && !confirmSuspiciousCompanyEmail;
+
+      if (shouldConfirmSameEmail) {
+        const confirmed = window.confirm(
+          "Using the same email for your hirer account and company verification can look suspicious. Continue anyway?",
+        );
+        if (!confirmed) {
+          setLoading(false);
+          return;
+        }
+        await submitAuth(true);
+        return;
+      }
+
+      const result = await apiRequest(mode === "signin" ? "/api/signin" : "/api/hirers/signup", {
+        method: "POST",
+        body:
+          mode === "signin"
+            ? { email, password, role: "hirer" }
+            : {
+                email,
+                password,
+                fullName: fullName || undefined,
+                companyName,
+                companyVerificationEmail: companyVerificationEmail || email,
+                confirmSuspiciousCompanyEmail,
+              },
+      });
+
+      const companyMessage = result.company?.message ? ` ${result.company.message}` : "";
+      setNotice({
+        type: "success",
+        text:
+          (result.message ?? (mode === "signin" ? "Signed in as hirer." : "Hirer account created.")) +
+          companyMessage,
+      });
+      if (mode === "signin") {
+        onAuthenticated(result.user);
+      } else {
+        setMode("signin");
+        setPassword("");
+        setConfirmPassword("");
+      }
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerifyEmail(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setVerifying(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest("/api/verify-email", {
+        method: "POST",
+        body: { token: verificationToken },
+      });
+      setNotice({ type: "success", text: result.message ?? "Email verified." });
+      if (result.user) {
+        onAuthenticated(result.user);
+      }
+      setVerificationToken("");
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  async function handleResendVerification() {
+    setResending(true);
+    setNotice(null);
+
+    try {
+      const result = await apiRequest("/api/resend-verification", {
+        method: "POST",
+        body: { email, role: "hirer" },
+      });
+      setNotice({ type: "success", text: result.message ?? "Verification email sent." });
+    } catch (error) {
+      setNotice({ type: "error", text: getErrorMessage(error) });
+    } finally {
+      setResending(false);
+    }
+  }
+
+  if (currentUser?.role === "hirer" && currentUser.emailVerified) {
+    return <HirerPortal user={currentUser} onNavigate={onNavigate} onLogout={onLogout} />;
+  }
+
+  return (
+    <AuthLayout
+      eyebrow="Hirer portal"
+      title="Bring better matching signal into every role."
+      body="Hiring teams can manage company roles, see how applicants match against job descriptions, and improve Dinero's predictions with review feedback."
+      previewTitle="Hirer feedback loop"
+      previewItems={["Company role setup", "Prediction quality feedback", "Optional future bias scoring"]}
+    >
+      {currentUser?.role === "hirer" && <SignedInPanel user={currentUser} />}
+      <SegmentedControl mode={mode} setMode={setMode} />
+      <form className="auth-form" onSubmit={handleSubmit}>
+        {mode === "signup" && (
+          <label>
+            Full name
+            <input
+              type="text"
+              placeholder="Your name"
+              value={fullName}
+              onChange={(event) => setFullName(event.target.value)}
+            />
+          </label>
+        )}
+        <label>
+          Work email
+          <input
+            type="email"
+            placeholder="name@company.com"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+          />
+        </label>
+        <label>
+          Password
+          <input
+            type="password"
+            placeholder="Enter your password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            minLength={mode === "signup" ? 8 : 1}
+            required
+          />
+        </label>
+        {mode === "signup" && (
+          <>
+            <label>
+              Confirm password
+              <input
+                type="password"
+                placeholder="Type your password again"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                minLength={8}
+                required
+              />
+            </label>
+            <PasswordMatchMessage password={password} confirmPassword={confirmPassword} />
+            <PasswordRequirements password={password} />
+          </>
+        )}
+        {mode === "signup" && (
+          <label>
+            Company name
+            <input
+              type="text"
+              placeholder="Company legal or public name"
+              value={companyName}
+              onChange={(event) => {
+                setCompanyName(event.target.value);
+                setCompanySuggestions([]);
+                setCompanyLookupMessage("");
+              }}
+              required
+            />
+          </label>
+        )}
+        {mode === "signup" && (
+          <>
+            <button className="secondary-button full-width" type="button" disabled={checkingCompany || !companyName || !email} onClick={handleCompanyLookup}>
+              {checkingCompany ? "Checking company..." : "Check company with AI"}
+            </button>
+            {companyLookupMessage === "Found" && <p className="form-note">Found</p>}
+            {companySuggestions.length > 0 && (
+              <div className="company-suggestion-list">
+                {companySuggestions.map((suggestion) => (
+                  <div className="company-suggestion" key={`${suggestion.name}-${suggestion.domain ?? "unknown"}`}>
+                    <strong>{suggestion.name}</strong>
+                    {suggestion.websiteUrl ? (
+                      <a href={suggestion.websiteUrl} target="_blank" rel="noreferrer">
+                        {suggestion.domain ?? suggestion.websiteUrl}
+                      </a>
+                    ) : (
+                      suggestion.domain && <span>{suggestion.domain}</span>
+                    )}
+                    <small>{suggestion.reason}</small>
+                    <button
+                      className="mini-action"
+                      type="button"
+                      onClick={() => {
+                        setCompanyName(suggestion.name);
+                        setCompanyLookupMessage("Found");
+                      }}
+                    >
+                      Select company
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <label>
+              Company verification email
+              <input
+                type="email"
+                placeholder="name@company.com"
+                value={companyVerificationEmail}
+                onChange={(event) => setCompanyVerificationEmail(event.target.value)}
+              />
+            </label>
+          </>
+        )}
+        {notice && <p className={`form-message ${notice.type}`}>{notice.text}</p>}
+        <button className="primary-button full-width" type="submit" disabled={loading}>
+          {loading ? "Working..." : submitLabel}
+        </button>
+      </form>
+      {mode === "signin" && (
+        <button className="ghost-button full-width" type="button" disabled={resending || !email} onClick={handleResendVerification}>
+          {resending ? "Sending..." : "Resend verification email"}
+        </button>
+      )}
+      {currentUser?.role === "hirer" && !currentUser.emailVerified && (
+        <EmailVerificationForm
+          token={verificationToken}
+          loading={verifying}
+          onTokenChange={setVerificationToken}
+          onSubmit={handleVerifyEmail}
+        />
+      )}
+    </AuthLayout>
+  );
+}
+
+function SegmentedControl({ mode, setMode }: { mode: AuthMode; setMode: (mode: AuthMode) => void }) {
+  return (
+    <div className="segmented-control" aria-label="Authentication mode">
+      <button className={mode === "signin" ? "selected" : ""} onClick={() => setMode("signin")} type="button">
+        Sign in
+      </button>
+      <button className={mode === "signup" ? "selected" : ""} onClick={() => setMode("signup")} type="button">
+        Sign up
+      </button>
+    </div>
+  );
+}
+
+function SignedInPanel({ user }: { user: CurrentUser }) {
+  return (
+    <div className="signed-in-panel">
+      <strong>Signed in</strong>
+      <span>{user.email}</span>
+      {!user.emailVerified && <em>Email verification is still pending.</em>}
+    </div>
+  );
+}
+
+function PasswordRequirements({ password }: { password: string }) {
+  const requirements = [
+    ["At least 8 characters", password.length >= 8],
+    ["At least 1 number", /\d/.test(password)],
+    ["At least 1 special character", /[^A-Za-z0-9]/.test(password)],
+  ] as const;
+
+  return (
+    <ul className="password-rules" aria-label="Password requirements">
+      {requirements.map(([label, passed]) => (
+        <li className={passed ? "passed" : ""} key={label}>
+          {label}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function PasswordMatchMessage({ password, confirmPassword }: { password: string; confirmPassword: string }) {
+  if (!confirmPassword) {
+    return null;
+  }
+
+  const matches = password === confirmPassword;
+
+  return (
+    <p className={`password-match ${matches ? "matched" : "unmatched"}`}>
+      {matches ? "Passwords match." : "Passwords do not match yet."}
+    </p>
+  );
+}
+
+function EmailVerificationForm({
+  token,
+  loading,
+  onTokenChange,
+  onSubmit,
+}: {
+  token: string;
+  loading: boolean;
+  onTokenChange: (token: string) => void;
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <form className="auth-form verification-form" onSubmit={onSubmit}>
+      <label>
+        Verification token
+        <input
+          type="text"
+          placeholder="Paste the token from your email"
+          value={token}
+          onChange={(event) => onTokenChange(event.target.value)}
+          required
+        />
+      </label>
+      <button className="secondary-button full-width" disabled={loading} type="submit">
+        {loading ? "Verifying..." : "Verify email"}
+      </button>
+    </form>
+  );
+}
+
+function AuthLayout({
+  eyebrow,
+  title,
+  body,
+  previewTitle,
+  previewItems,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  body: string;
+  previewTitle: string;
+  previewItems: string[];
+  children: React.ReactNode;
+}) {
+  return (
+    <main className="auth-page">
+      <section className="auth-intro">
+        <p className="eyebrow">{eyebrow}</p>
+        <h1>{title}</h1>
+        <p>{body}</p>
+        <div className="auth-preview">
+          <h2>{previewTitle}</h2>
+          <ul>
+            {previewItems.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      </section>
+      <section className="auth-panel" aria-label={eyebrow}>
+        {children}
+      </section>
+    </main>
+  );
+}
+
+createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
+
+async function apiRequest(path: string, options: { method?: string; body?: Record<string, unknown> } = {}) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: options.method ?? "GET",
+    headers: options.body ? { "Content-Type": "application/json" } : undefined,
+    body: options.body ? JSON.stringify(options.body) : undefined,
+    credentials: "include",
+  });
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(getApiErrorMessage(payload));
+  }
+
+  return payload;
+}
+
+async function refreshCurrentUser() {
+  const response = await fetch(`${API_BASE_URL}/api/me`, {
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const payload = await response.json();
+  return payload.user as CurrentUser | null;
+}
+
+async function verifyEmailFromLink(token: string) {
+  const result = await apiRequest("/api/verify-email", {
+    method: "POST",
+    body: { token },
+  });
+
+  return result.user as CurrentUser | null;
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Something went wrong.";
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function toDateInputValue(value: string | null) {
+  if (!value) {
+    return "";
+  }
+
+  return value.slice(0, 10);
+}
+
+function dateInputToEndOfDayIso(value: string) {
+  return new Date(`${value}T23:59:59`).toISOString();
+}
+
+function truncateText(value: string, maxLength: number) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 1).trim()}...`;
+}
+
+function getSimilarForumPosts(selectedPost: ForumPost, posts: ForumPost[]) {
+  const selectedKeywords = forumKeywords(`${selectedPost.subject} ${selectedPost.body}`);
+
+  return posts
+    .filter((post) => post.id !== selectedPost.id)
+    .map((post) => {
+      const keywords = forumKeywords(`${post.subject} ${post.body}`);
+      const score = keywords.filter((keyword) => selectedKeywords.includes(keyword)).length;
+      return { post, score };
+    })
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score || new Date(b.post.createdAt).getTime() - new Date(a.post.createdAt).getTime())
+    .slice(0, 5)
+    .map(({ post }) => post);
+}
+
+function getSimilarJobPosts(selectedJob: JobPost, jobs: JobPost[]) {
+  const selectedKeywords = forumKeywords(`${selectedJob.title} ${selectedJob.companyName} ${selectedJob.description}`);
+
+  return jobs
+    .filter((job, index, allJobs) => job.id !== selectedJob.id && job.sourceKind === "hirer" && allJobs.findIndex((item) => item.id === job.id) === index)
+    .map((job) => {
+      const keywords = forumKeywords(`${job.title} ${job.companyName} ${job.description}`);
+      const score = keywords.filter((keyword) => selectedKeywords.includes(keyword)).length;
+      return { job, score };
+    })
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score || new Date(b.job.createdAt).getTime() - new Date(a.job.createdAt).getTime())
+    .slice(0, 5)
+    .map(({ job }) => job);
+}
+
+function forumKeywords(value: string) {
+  const ignored = new Set([
+    "about",
+    "after",
+    "again",
+    "also",
+    "and",
+    "any",
+    "are",
+    "for",
+    "from",
+    "have",
+    "help",
+    "how",
+    "into",
+    "job",
+    "jobs",
+    "like",
+    "that",
+    "the",
+    "this",
+    "with",
+    "you",
+    "your",
+  ]);
+
+  return Array.from(
+    new Set(
+      value
+        .toLowerCase()
+        .replace(/[^a-z0-9\s+#.]/g, " ")
+        .split(/\s+/)
+        .filter((word) => word.length > 2 && !ignored.has(word)),
+    ),
+  ).slice(0, 30);
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024 * 1024) {
+    return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result ?? "")));
+    reader.addEventListener("error", () => reject(new Error("Could not read image file.")));
+    reader.readAsDataURL(file);
+  });
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function getApiErrorMessage(payload: {
+  error?: string;
+  issues?: { fieldErrors?: Record<string, string[]>; formErrors?: string[] };
+}) {
+  const fieldErrors = payload.issues?.fieldErrors;
+  const firstFieldError = fieldErrors
+    ? Object.values(fieldErrors)
+        .flat()
+        .find(Boolean)
+    : null;
+  const firstFormError = payload.issues?.formErrors?.find(Boolean);
+
+  return firstFieldError ?? firstFormError ?? payload.error ?? "Request failed.";
+}
+
+function validateSignupPassword(mode: AuthMode, password: string, confirmPassword: string) {
+  if (mode !== "signup") {
+    return;
+  }
+
+  if (password !== confirmPassword) {
+    throw new Error("Passwords do not match.");
+  }
+
+  if (password.length < 8) {
+    throw new Error("Password must be at least 8 characters.");
+  }
+
+  if (!/\d/.test(password)) {
+    throw new Error("Password must include at least one number.");
+  }
+
+  if (!/[^A-Za-z0-9]/.test(password)) {
+    throw new Error("Password must include at least one special character.");
+  }
+}
